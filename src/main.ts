@@ -53,7 +53,7 @@ if (!app) throw new Error("#app missing");
 
 app.innerHTML = `
   <header class="app-header">
-    <h1 class="app-title">Markdown flashcards</h1>
+    <h1 class="app-title">.md flashcards</h1>
     <div class="header-tools">
       <button type="button" class="btn-theme" id="btn-theme">Light</button>
       <button type="button" class="btn-secondary" id="btn-open" aria-controls="file-input">
