@@ -2,7 +2,7 @@ import "@fontsource/geist/latin-300.css";
 import "@fontsource/geist/latin-400.css";
 import "@fontsource/geist-mono/latin-400.css";
 import "./styles.css";
-import { parseFlashcards, type Flashcard } from "./parseFlashcards";
+import { parseFlashcards, serializeDeck, type Flashcard } from "./parseFlashcards";
 import { renderAnswerHtml, renderTitleHtml } from "./renderMarkdown";
 
 const THEME_KEY = "markdown-flashcards-theme";
@@ -16,6 +16,9 @@ type Outcome = "got" | "missed";
 
 type AppState = {
   cards: Flashcard[];
+  deckPreamble: string | null;
+  /** When set, Save writes here; from showOpenFilePicker or after showSaveFilePicker. */
+  deckFileHandle: FileSystemFileHandle | null;
   index: number;
   got: number;
   missed: number;
@@ -28,6 +31,8 @@ type AppState = {
 
 const state: AppState = {
   cards: [],
+  deckPreamble: null,
+  deckFileHandle: null,
   index: 0,
   got: 0,
   missed: 0,
@@ -56,6 +61,16 @@ app.innerHTML = `
       </button>
       <input class="hidden-input" id="file-input" type="file" accept=".md,.markdown,text/markdown,text/x-markdown" />
       <button type="button" class="btn-secondary" id="btn-sample">Load sample deck</button>
+      <button
+        type="button"
+        class="btn-secondary"
+        id="btn-edit-card"
+        disabled
+        aria-controls="edit-card-dialog"
+        aria-label="Edit current flashcard"
+      >
+        Edit card
+      </button>
       <span class="mono-label" id="session-readout" aria-live="polite">Card 0 / 0</span>
       <span class="tally" id="tally" aria-live="polite">
         <span class="tally__part">Got <strong id="tally-got">0</strong></span>
@@ -115,6 +130,34 @@ app.innerHTML = `
       <ul class="missed-panel__list" id="missed-list"></ul>
     </aside>
   </main>
+  <dialog class="edit-card-dialog" id="edit-card-dialog" aria-labelledby="edit-card-dialog-title">
+    <form class="edit-card-dialog__form" id="edit-card-form">
+      <div class="edit-card-dialog__header">
+        <h2 class="edit-card-dialog__title" id="edit-card-dialog-title">Edit card</h2>
+      </div>
+      <div class="edit-card-dialog__body">
+        <label class="edit-card-dialog__label">
+          <span class="edit-card-dialog__label-text">Question (heading text, no ##)</span>
+          <input
+            class="edit-card-dialog__input"
+            type="text"
+            id="edit-card-title"
+            name="title"
+            autocomplete="off"
+            required
+          />
+        </label>
+        <label class="edit-card-dialog__label">
+          <span class="edit-card-dialog__label-text">Answer (Markdown)</span>
+          <textarea class="edit-card-dialog__textarea" id="edit-card-body" name="body" rows="10"></textarea>
+        </label>
+      </div>
+      <div class="edit-card-dialog__actions">
+        <button type="button" class="btn-outline" id="edit-card-cancel" value="cancel">Cancel</button>
+        <button type="submit" class="btn-primary" id="edit-card-save">Save</button>
+      </div>
+    </form>
+  </dialog>
 `;
 
 const el = {
@@ -142,6 +185,12 @@ const el = {
   missedList: app.querySelector<HTMLUListElement>("#missed-list")!,
   btnMissedPanelToggle: app.querySelector<HTMLButtonElement>("#btn-missed-panel-toggle")!,
   missedPanelTitle: app.querySelector<HTMLSpanElement>("#missed-panel-title")!,
+  editDialog: app.querySelector<HTMLDialogElement>("#edit-card-dialog")!,
+  editForm: app.querySelector<HTMLFormElement>("#edit-card-form")!,
+  editTitle: app.querySelector<HTMLInputElement>("#edit-card-title")!,
+  editBody: app.querySelector<HTMLTextAreaElement>("#edit-card-body")!,
+  btnEditCard: app.querySelector<HTMLButtonElement>("#btn-edit-card")!,
+  btnEditCancel: app.querySelector<HTMLButtonElement>("#edit-card-cancel")!,
 };
 
 function syncThemeButton(): void {
@@ -177,6 +226,12 @@ function flashcardFlipClick(e: MouseEvent): void {
 }
 
 function flashcardFlipKeydown(e: KeyboardEvent): void {
+  if ((e.key === "e" || e.key === "E") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (state.cards.length === 0) return;
+    e.preventDefault();
+    openEditCardDialog();
+    return;
+  }
   if (e.key !== "Enter" && e.key !== " ") return;
   const t = e.target as Element;
   if (t.closest("a")) return;
@@ -187,9 +242,187 @@ function flashcardFlipKeydown(e: KeyboardEvent): void {
 el.flipCard.addEventListener("click", flashcardFlipClick);
 el.flipCard.addEventListener("keydown", flashcardFlipKeydown);
 
-function loadDeck(text: string, label: string): void {
-  const { cards } = parseFlashcards(text);
+el.flipCard.addEventListener("contextmenu", (e) => {
+  const t = e.target as Element;
+  if (t.closest("a") || t.closest("button")) return;
+  if (state.cards.length === 0) return;
+  e.preventDefault();
+  openEditCardDialog();
+});
+
+type MarkdownFileWritable = {
+  write(chunk: Blob): Promise<void>;
+  close(): Promise<void>;
+};
+
+/** Chromium file handle with write APIs (DOM `lib` typings are incomplete). */
+type MarkdownFileHandle = FileSystemFileHandle & {
+  queryPermission(descriptor: { mode: "readwrite" }): Promise<PermissionState>;
+  requestPermission(descriptor: { mode: "readwrite" }): Promise<PermissionState>;
+  createWritable(): Promise<MarkdownFileWritable>;
+};
+
+type WindowWithFileSystemAccess = Window & {
+  showOpenFilePicker?: (options: {
+    types: Array<{ description: string; accept: Record<string, string[]> }>;
+    multiple: boolean;
+  }) => Promise<FileSystemFileHandle[]>;
+  showSaveFilePicker?: (options: {
+    suggestedName: string;
+    types: Array<{ description: string; accept: Record<string, string[]> }>;
+    /** Per-origin remembered folder (Chromium). */
+    id?: string;
+  }) => Promise<FileSystemFileHandle>;
+};
+
+async function writeTextToFileHandle(handle: FileSystemFileHandle, text: string): Promise<void> {
+  const h = handle as MarkdownFileHandle;
+  const perm = { mode: "readwrite" as const };
+  if ((await h.queryPermission(perm)) !== "granted") {
+    if ((await h.requestPermission(perm)) !== "granted") {
+      throw new DOMException("Write permission denied", "NotAllowedError");
+    }
+  }
+  const writable = await h.createWritable();
+  try {
+    await writable.write(new Blob([text], { type: "text/markdown;charset=utf-8" }));
+  } finally {
+    await writable.close();
+  }
+}
+
+/** Writes serialized deck to linked file, or prompts once with save picker to link a file. */
+async function syncDeckToDisk(): Promise<void> {
+  const win = window as WindowWithFileSystemAccess;
+  const md = serializeDeck(state.deckPreamble, state.cards);
+  if (state.deckFileHandle) {
+    await writeTextToFileHandle(state.deckFileHandle, md);
+    return;
+  }
+  if (!win.showSaveFilePicker) {
+    const n = state.cards.length;
+    const label = state.fileLabel;
+    if (label) {
+      el.fileMeta.textContent = `${label} · ${n} card${n === 1 ? "" : "s"} — this browser cannot write the file; changes stay in this tab only.`;
+    }
+    return;
+  }
+  let handle: FileSystemFileHandle;
+  try {
+    handle = await win.showSaveFilePicker({
+      suggestedName: deckDownloadFilename(),
+      id: "markdown-flashcards-deck",
+      types: [
+        {
+          description: "Markdown",
+          accept: { "text/markdown": [".md", ".markdown"] },
+        },
+      ],
+    });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") {
+      const n = state.cards.length;
+      const label = state.fileLabel;
+      el.fileMeta.textContent = label
+        ? `${label} · ${n} card${n === 1 ? "" : "s"} — save to file was canceled; changes are only in this tab.`
+        : "";
+      return;
+    }
+    throw e;
+  }
+  state.deckFileHandle = handle;
+  state.fileLabel = handle.name;
+  await writeTextToFileHandle(handle, md);
+}
+
+async function openMarkdownDeck(): Promise<void> {
+  const win = window as WindowWithFileSystemAccess;
+  if (win.showOpenFilePicker) {
+    try {
+      const [handle] = await win.showOpenFilePicker({
+        types: [
+          {
+            description: "Markdown",
+            accept: { "text/markdown": [".md", ".markdown"] },
+          },
+        ],
+        multiple: false,
+      });
+      const file = await handle.getFile();
+      const text = await file.text();
+      loadDeck(text, file.name, handle);
+      return;
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+    }
+  }
+  el.fileInput.click();
+}
+
+function normalizeEditTitle(raw: string): string {
+  let s = raw.replace(/\s+/g, " ").trim();
+  s = s.replace(/^#{1,6}\s*/, "");
+  return s;
+}
+
+function openEditCardDialog(): void {
+  if (state.cards.length === 0) return;
+  const card = state.cards[state.index]!;
+  el.editTitle.value = card.title;
+  el.editBody.value = card.bodyMd;
+  el.editDialog.showModal();
+  queueMicrotask(() => {
+    el.editTitle.focus();
+    el.editTitle.select();
+  });
+}
+
+function closeEditCardDialog(): void {
+  if (el.editDialog.open) el.editDialog.close();
+}
+
+function deckDownloadFilename(): string {
+  const label = state.fileLabel;
+  if (label && /\.(md|markdown)$/i.test(label)) return label;
+  return "edited-deck.md";
+}
+
+el.btnEditCard.addEventListener("click", () => openEditCardDialog());
+
+el.editForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const title = normalizeEditTitle(el.editTitle.value);
+  if (!title) {
+    el.editTitle.focus();
+    return;
+  }
+  const card = state.cards[state.index];
+  if (!card) return;
+  card.title = title;
+  card.bodyMd = el.editBody.value;
+  closeEditCardDialog();
+  render();
+  void (async () => {
+    try {
+      await syncDeckToDisk();
+      render();
+    } catch {
+      const n = state.cards.length;
+      const label = state.fileLabel;
+      el.fileMeta.textContent = label
+        ? `${label} · ${n} card${n === 1 ? "" : "s"} — could not write file.`
+        : "Could not write file.";
+    }
+  })();
+});
+
+el.btnEditCancel.addEventListener("click", () => closeEditCardDialog());
+
+function loadDeck(text: string, label: string, fileHandle: FileSystemFileHandle | null = null): void {
+  const { cards, deckPreamble } = parseFlashcards(text);
   state.cards = cards;
+  state.deckPreamble = deckPreamble;
+  state.deckFileHandle = fileHandle;
   state.index = 0;
   state.got = 0;
   state.missed = 0;
@@ -205,7 +438,7 @@ async function loadSample(): Promise<void> {
   const res = await fetch("/sample-deck.md");
   if (!res.ok) throw new Error("Could not load sample deck");
   const text = await res.text();
-  loadDeck(text, "sample-deck.md");
+  loadDeck(text, "sample-deck.md", null);
 }
 
 function renderMissedPanel(): void {
@@ -295,6 +528,7 @@ function render(): void {
     el.btnMissed.disabled = true;
     el.btnPrev.disabled = true;
     el.btnNext.disabled = true;
+    el.btnEditCard.disabled = true;
     return;
   }
 
@@ -302,6 +536,8 @@ function render(): void {
 
   el.btnGot.disabled = false;
   el.btnMissed.disabled = false;
+
+  el.btnEditCard.disabled = false;
 
   el.btnPrev.disabled = state.index <= 0;
   el.btnNext.disabled = state.index >= n - 1;
@@ -315,8 +551,8 @@ function render(): void {
   el.flipCard.setAttribute(
     "aria-label",
     state.isFlipped
-      ? "Showing answer. Click or press Enter to show the question."
-      : "Showing question. Click or press Enter to reveal the answer.",
+      ? "Showing answer. Click or press Enter to show the question. Press E to edit this card."
+      : "Showing question. Click or press Enter to reveal the answer. Press E to edit this card.",
   );
 }
 
@@ -374,7 +610,9 @@ function restartSession(): void {
 
 el.btnRestart.addEventListener("click", restartSession);
 
-el.btnOpen.addEventListener("click", () => el.fileInput.click());
+el.btnOpen.addEventListener("click", () => {
+  void openMarkdownDeck();
+});
 
 el.fileInput.addEventListener("change", () => {
   const file = el.fileInput.files?.[0];
@@ -383,7 +621,7 @@ el.fileInput.addEventListener("change", () => {
   const reader = new FileReader();
   reader.onload = () => {
     const text = typeof reader.result === "string" ? reader.result : "";
-    loadDeck(text, file.name);
+    loadDeck(text, file.name, null);
   };
   reader.readAsText(file);
 });
@@ -448,13 +686,34 @@ el.dropZone.addEventListener("drop", (e) => {
     el.fileMeta.textContent = "Please drop a Markdown (.md) file.";
     return;
   }
-  const reader = new FileReader();
-  reader.onload = () => {
-    const text = typeof reader.result === "string" ? reader.result : "";
-    loadDeck(text, file.name);
-  };
-  reader.readAsText(file);
+  void loadDeckFromDroppedFile(e.dataTransfer!, file);
 });
+
+async function loadDeckFromDroppedFile(dt: DataTransfer, file: File): Promise<void> {
+  let handle: FileSystemFileHandle | null = null;
+  const item = dt.items[0];
+  if (item?.kind === "file") {
+    const withFs = item as DataTransferItem & {
+      getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>;
+    };
+    if (typeof withFs.getAsFileSystemHandle === "function") {
+      try {
+        const h = await withFs.getAsFileSystemHandle();
+        if (h !== null && h.kind === "file") handle = h as FileSystemFileHandle;
+      } catch {
+        /* e.g. drag from browser UI — no host path / handle */
+      }
+    }
+  }
+  let text: string;
+  try {
+    text = await file.text();
+  } catch {
+    el.fileMeta.textContent = "Could not read file.";
+    return;
+  }
+  loadDeck(text, file.name, handle);
+}
 
 syncThemeButton();
 render();

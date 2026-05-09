@@ -44,3 +44,14 @@ export function parseFlashcards(markdown: string): ParsedDeck {
 
   return { deckPreamble, cards };
 }
+
+/** Rebuild deck markdown (optional preamble + `##` cards). */
+export function serializeDeck(deckPreamble: string | null, cards: Flashcard[]): string {
+  const chunks: string[] = [];
+  const pre = deckPreamble?.trim();
+  if (pre) chunks.push(pre.replace(/\n+$/, ""));
+  for (const c of cards) {
+    chunks.push(`## ${c.title}\n\n${c.bodyMd.trim()}`);
+  }
+  return chunks.join("\n\n").replace(/\n+$/, "") + "\n";
+}
