@@ -111,7 +111,7 @@ app.innerHTML = `
           </article>
         </div>
         <div class="actions">
-          <button type="button" class="btn-primary" id="btn-got" disabled>GOT IT</button>
+          <button type="button" class="btn-outline" id="btn-got" disabled>GOT IT</button>
           <button type="button" class="btn-outline" id="btn-missed" disabled>MISSED IT</button>
           <button type="button" class="btn-outline" id="btn-restart" hidden>RESTART</button>
         </div>
@@ -547,6 +547,10 @@ function render(): void {
     el.flipCard.setAttribute("tabindex", "-1");
     el.btnGot.disabled = true;
     el.btnMissed.disabled = true;
+    el.btnGot.classList.remove("btn-primary");
+    el.btnGot.classList.add("btn-outline");
+    el.btnMissed.classList.remove("btn-primary");
+    el.btnMissed.classList.add("btn-outline");
     el.btnPrev.disabled = true;
     el.btnNext.disabled = true;
     el.btnEditCard.disabled = true;
@@ -562,6 +566,12 @@ function render(): void {
 
   el.btnPrev.disabled = state.index <= 0;
   el.btnNext.disabled = state.index >= n - 1;
+
+  const outcomeForCard = state.outcomes.get(state.index);
+  el.btnGot.classList.toggle("btn-primary", outcomeForCard === "got");
+  el.btnGot.classList.toggle("btn-outline", outcomeForCard !== "got");
+  el.btnMissed.classList.toggle("btn-primary", outcomeForCard === "missed");
+  el.btnMissed.classList.toggle("btn-outline", outcomeForCard !== "missed");
 
   const card = state.cards[state.index]!;
   el.questionTitle.innerHTML = renderTitleHtml(card.title);
