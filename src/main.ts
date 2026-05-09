@@ -17,8 +17,10 @@ type Outcome = "got" | "missed";
 type AppState = {
   cards: Flashcard[];
   deckPreamble: string | null;
-  /** When set, Save writes here; from showOpenFilePicker or after showSaveFilePicker. */
+  /** When set, Save writes here; from showOpenFilePicker, drop, or after showSaveFilePicker. */
   deckFileHandle: FileSystemFileHandle | null;
+  /** Same directory as the linked deck for picker `startIn` (file or dir handle per FS Access). */
+  deckFolderHint: FileSystemHandle | null;
   index: number;
   got: number;
   missed: number;
@@ -33,6 +35,7 @@ const state: AppState = {
   cards: [],
   deckPreamble: null,
   deckFileHandle: null,
+  deckFolderHint: null,
   index: 0,
   got: 0,
   missed: 0,
@@ -266,12 +269,12 @@ type WindowWithFileSystemAccess = Window & {
   showOpenFilePicker?: (options: {
     types: Array<{ description: string; accept: Record<string, string[]> }>;
     multiple: boolean;
+    startIn?: FileSystemHandle;
   }) => Promise<FileSystemFileHandle[]>;
   showSaveFilePicker?: (options: {
     suggestedName: string;
     types: Array<{ description: string; accept: Record<string, string[]> }>;
-    /** Per-origin remembered folder (Chromium). */
-    id?: string;
+    startIn?: FileSystemHandle;
   }) => Promise<FileSystemFileHandle>;
 };
 
@@ -291,54 +294,70 @@ async function writeTextToFileHandle(handle: FileSystemFileHandle, text: string)
   }
 }
 
-/** Writes serialized deck to linked file, or prompts once with save picker to link a file. */
+/** Writes serialized deck to linked file, or prompts with save picker (`startIn` from `deckFolderHint` when known). */
 async function syncDeckToDisk(): Promise<void> {
   const win = window as WindowWithFileSystemAccess;
   const md = serializeDeck(state.deckPreamble, state.cards);
-  if (state.deckFileHandle) {
-    await writeTextToFileHandle(state.deckFileHandle, md);
-    return;
-  }
-  if (!win.showSaveFilePicker) {
-    const n = state.cards.length;
-    const label = state.fileLabel;
-    if (label) {
-      el.fileMeta.textContent = `${label} · ${n} card${n === 1 ? "" : "s"} — this browser cannot write the file; changes stay in this tab only.`;
-    }
-    return;
-  }
-  let handle: FileSystemFileHandle;
-  try {
-    handle = await win.showSaveFilePicker({
-      suggestedName: deckDownloadFilename(),
-      id: "markdown-flashcards-deck",
-      types: [
-        {
-          description: "Markdown",
-          accept: { "text/markdown": [".md", ".markdown"] },
-        },
-      ],
-    });
-  } catch (e) {
-    if (e instanceof DOMException && e.name === "AbortError") {
+
+  const markdownPickerTypes = [
+    {
+      description: "Markdown",
+      accept: { "text/markdown": [".md", ".markdown"] },
+    },
+  ];
+
+  async function pickSaveAndWrite(): Promise<void> {
+    if (!win.showSaveFilePicker) {
       const n = state.cards.length;
       const label = state.fileLabel;
-      el.fileMeta.textContent = label
-        ? `${label} · ${n} card${n === 1 ? "" : "s"} — save to file was canceled; changes are only in this tab.`
-        : "";
+      if (label) {
+        el.fileMeta.textContent = `${label} · ${n} card${n === 1 ? "" : "s"} — this browser cannot write the file; changes stay in this tab only.`;
+      }
       return;
     }
-    throw e;
+    const startIn = state.deckFolderHint ?? state.deckFileHandle ?? undefined;
+    let handle: FileSystemFileHandle;
+    try {
+      handle = await win.showSaveFilePicker({
+        suggestedName: deckDownloadFilename(),
+        types: markdownPickerTypes,
+        ...(startIn ? { startIn } : {}),
+      });
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") {
+        const n = state.cards.length;
+        const label = state.fileLabel;
+        el.fileMeta.textContent = label
+          ? `${label} · ${n} card${n === 1 ? "" : "s"} — save to file was canceled; changes are only in this tab.`
+          : "";
+        return;
+      }
+      throw e;
+    }
+    state.deckFileHandle = handle;
+    state.deckFolderHint = handle;
+    state.fileLabel = handle.name;
+    await writeTextToFileHandle(handle, md);
   }
-  state.deckFileHandle = handle;
-  state.fileLabel = handle.name;
-  await writeTextToFileHandle(handle, md);
+
+  if (state.deckFileHandle) {
+    try {
+      await writeTextToFileHandle(state.deckFileHandle, md);
+      return;
+    } catch {
+      await pickSaveAndWrite();
+      return;
+    }
+  }
+
+  await pickSaveAndWrite();
 }
 
 async function openMarkdownDeck(): Promise<void> {
   const win = window as WindowWithFileSystemAccess;
   if (win.showOpenFilePicker) {
     try {
+      const startIn = state.deckFolderHint ?? state.deckFileHandle ?? undefined;
       const [handle] = await win.showOpenFilePicker({
         types: [
           {
@@ -347,6 +366,7 @@ async function openMarkdownDeck(): Promise<void> {
           },
         ],
         multiple: false,
+        ...(startIn ? { startIn } : {}),
       });
       const file = await handle.getFile();
       const text = await file.text();
@@ -423,6 +443,7 @@ function loadDeck(text: string, label: string, fileHandle: FileSystemFileHandle 
   state.cards = cards;
   state.deckPreamble = deckPreamble;
   state.deckFileHandle = fileHandle;
+  state.deckFolderHint = fileHandle;
   state.index = 0;
   state.got = 0;
   state.missed = 0;
