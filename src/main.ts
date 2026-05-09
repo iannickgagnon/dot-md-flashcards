@@ -111,8 +111,8 @@ app.innerHTML = `
           </article>
         </div>
         <div class="actions">
-          <button type="button" class="btn-outline" id="btn-got" disabled>GOT IT</button>
-          <button type="button" class="btn-outline" id="btn-missed" disabled>MISSED IT</button>
+          <button type="button" class="btn-outline" id="btn-got" disabled hidden>GOT IT</button>
+          <button type="button" class="btn-outline" id="btn-missed" disabled hidden>MISSED IT</button>
           <button type="button" class="btn-outline" id="btn-restart" hidden>RESTART</button>
         </div>
       </div>
@@ -547,6 +547,8 @@ function render(): void {
     el.flipCard.setAttribute("tabindex", "-1");
     el.btnGot.disabled = true;
     el.btnMissed.disabled = true;
+    el.btnGot.hidden = true;
+    el.btnMissed.hidden = true;
     el.btnGot.classList.remove("btn-primary");
     el.btnGot.classList.add("btn-outline");
     el.btnMissed.classList.remove("btn-primary");
@@ -561,6 +563,8 @@ function render(): void {
 
   el.btnGot.disabled = false;
   el.btnMissed.disabled = false;
+  el.btnGot.hidden = false;
+  el.btnMissed.hidden = false;
 
   el.btnEditCard.disabled = false;
 
