@@ -22,6 +22,8 @@ type AppState = {
   fileLabel: string | null;
   isFlipped: boolean;
   outcomes: Map<number, Outcome>;
+  sessionComplete: boolean;
+  missedPanelCollapsed: boolean;
 };
 
 const state: AppState = {
@@ -32,7 +34,14 @@ const state: AppState = {
   fileLabel: null,
   isFlipped: false,
   outcomes: new Map(),
+  sessionComplete: false,
+  missedPanelCollapsed: false,
 };
+
+function titlePlainForList(raw: string): string {
+  const s = raw.replace(/\s+/g, " ").trim();
+  return s.length > 100 ? `${s.slice(0, 97)}…` : s;
+}
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("#app missing");
@@ -49,43 +58,62 @@ app.innerHTML = `
       <button type="button" class="btn-secondary" id="btn-sample">Load sample deck</button>
       <span class="mono-label" id="session-readout" aria-live="polite">Card 0 / 0</span>
       <span class="tally" id="tally" aria-live="polite">
-        Got <strong id="tally-got">0</strong> · <span class="tally-missed-dot" aria-hidden="true"></span>Missed <strong id="tally-missed">0</strong>
+        <span class="tally__part">Got <strong id="tally-got">0</strong></span>
+        <span class="tally__part">Missed <strong id="tally-missed">0</strong></span>
       </span>
     </div>
     <p class="file-meta" id="file-meta"></p>
   </header>
-  <main>
-    <div class="drop-zone" id="drop-zone" tabindex="-1">
-      <p class="empty-hint" id="empty-hint">Drop a .md file here, use Open markdown file, or load the sample deck.</p>
-      <div class="flashcard-wrap" id="flashcard-wrap" hidden>
-        <article class="flashcard" aria-label="Flashcard deck">
-          <button type="button" class="nav-strip nav-strip--prev" id="btn-prev" aria-label="Previous flashcard">←</button>
-          <div
-            class="flashcard-flip"
-            id="flashcard-flip"
-            tabindex="0"
-            role="button"
-            aria-pressed="false"
-            aria-label="Showing question. Click or press Enter to reveal the answer."
-          >
-            <div class="flashcard-flip__panel" id="flip-panel">
-              <div class="flashcard-face flashcard-face--front">
-                <h2 id="question-title"></h2>
-                <p class="flashcard-hint">Click to reveal answer</p>
-              </div>
-              <div class="flashcard-face flashcard-face--back">
-                <div class="answer prose" id="answer"></div>
+  <main class="app-layout">
+    <div class="app-layout__main">
+      <div class="drop-zone" id="drop-zone" tabindex="-1">
+        <p class="empty-hint" id="empty-hint">Drop a .md file here, use Open markdown file, or load the sample deck.</p>
+        <div class="flashcard-wrap" id="flashcard-wrap" hidden>
+          <article class="flashcard" aria-label="Flashcard deck">
+            <button type="button" class="nav-strip nav-strip--prev" id="btn-prev" aria-label="Previous flashcard">←</button>
+            <div
+              class="flashcard-flip"
+              id="flashcard-flip"
+              tabindex="0"
+              role="button"
+              aria-pressed="false"
+              aria-label="Showing question. Click or press Enter to reveal the answer."
+            >
+              <div class="flashcard-flip__panel" id="flip-panel">
+                <div class="flashcard-face flashcard-face--front">
+                  <h2 id="question-title"></h2>
+                  <p class="flashcard-hint">Click to reveal answer</p>
+                </div>
+                <div class="flashcard-face flashcard-face--back">
+                  <div class="answer prose" id="answer"></div>
+                </div>
               </div>
             </div>
-          </div>
-          <button type="button" class="nav-strip nav-strip--next" id="btn-next" aria-label="Next flashcard">→</button>
-        </article>
-      </div>
-      <div class="actions">
-        <button type="button" class="btn-primary" id="btn-got" disabled>GOT IT</button>
-        <button type="button" class="btn-outline" id="btn-missed" disabled>MISSED IT</button>
+            <button type="button" class="nav-strip nav-strip--next" id="btn-next" aria-label="Next flashcard">→</button>
+          </article>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn-primary" id="btn-got" disabled>GOT IT</button>
+          <button type="button" class="btn-outline" id="btn-missed" disabled>MISSED IT</button>
+          <button type="button" class="btn-outline" id="btn-restart" hidden>RESTART</button>
+        </div>
       </div>
     </div>
+    <aside class="missed-panel" id="missed-panel" hidden>
+      <div class="missed-panel__head">
+        <span class="missed-panel__title" id="missed-panel-title">Missed</span>
+        <button
+          type="button"
+          class="missed-panel__toggle"
+          id="btn-missed-panel-toggle"
+          aria-expanded="true"
+          aria-controls="missed-list"
+        >
+          Hide
+        </button>
+      </div>
+      <ul class="missed-panel__list" id="missed-list"></ul>
+    </aside>
   </main>
 `;
 
@@ -108,7 +136,12 @@ const el = {
   btnNext: app.querySelector<HTMLButtonElement>("#btn-next")!,
   btnGot: app.querySelector<HTMLButtonElement>("#btn-got")!,
   btnMissed: app.querySelector<HTMLButtonElement>("#btn-missed")!,
+  btnRestart: app.querySelector<HTMLButtonElement>("#btn-restart")!,
   dropZone: app.querySelector<HTMLDivElement>("#drop-zone")!,
+  missedPanel: app.querySelector<HTMLElement>("#missed-panel")!,
+  missedList: app.querySelector<HTMLUListElement>("#missed-list")!,
+  btnMissedPanelToggle: app.querySelector<HTMLButtonElement>("#btn-missed-panel-toggle")!,
+  missedPanelTitle: app.querySelector<HTMLSpanElement>("#missed-panel-title")!,
 };
 
 function syncThemeButton(): void {
@@ -163,6 +196,8 @@ function loadDeck(text: string, label: string): void {
   state.fileLabel = label;
   state.isFlipped = false;
   state.outcomes = new Map();
+  state.sessionComplete = false;
+  state.missedPanelCollapsed = false;
   render();
 }
 
@@ -172,6 +207,60 @@ async function loadSample(): Promise<void> {
   const text = await res.text();
   loadDeck(text, "sample-deck.md");
 }
+
+function renderMissedPanel(): void {
+  const m = state.missed;
+  el.missedPanel.hidden = m === 0;
+
+  if (m === 0) {
+    el.missedList.innerHTML = "";
+    return;
+  }
+
+  el.missedPanelTitle.textContent = `Missed (${m})`;
+  el.missedPanel.classList.toggle("missed-panel--collapsed", state.missedPanelCollapsed);
+  el.btnMissedPanelToggle.textContent = state.missedPanelCollapsed ? "Show" : "Hide";
+  el.btnMissedPanelToggle.setAttribute(
+    "aria-expanded",
+    state.missedPanelCollapsed ? "false" : "true",
+  );
+
+  el.missedList.innerHTML = "";
+  const indices = [...state.outcomes.entries()]
+    .filter(([, o]) => o === "missed")
+    .map(([i]) => i)
+    .sort((a, b) => a - b);
+
+  for (const i of indices) {
+    const card = state.cards[i];
+    if (!card) continue;
+    const li = document.createElement("li");
+    li.className = "missed-panel__li";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "missed-panel__item";
+    btn.dataset.index = String(i);
+    btn.textContent = titlePlainForList(card.title);
+    btn.setAttribute("aria-label", `Go to card ${i + 1}: ${titlePlainForList(card.title)}`);
+    li.appendChild(btn);
+    el.missedList.appendChild(li);
+  }
+}
+
+el.missedList.addEventListener("click", (e) => {
+  const target = (e.target as HTMLElement).closest("button[data-index]");
+  if (!target || !(target instanceof HTMLButtonElement)) return;
+  const i = parseInt(target.dataset.index ?? "", 10);
+  if (Number.isNaN(i) || i < 0 || i >= state.cards.length) return;
+  state.index = i;
+  state.isFlipped = false;
+  render();
+});
+
+el.btnMissedPanelToggle.addEventListener("click", () => {
+  state.missedPanelCollapsed = !state.missedPanelCollapsed;
+  render();
+});
 
 function render(): void {
   const n = state.cards.length;
@@ -187,6 +276,10 @@ function render(): void {
   el.sessionReadout.textContent = hasCards ? `Card ${state.index + 1} / ${n}` : "Card 0 / 0";
   el.tallyGot.textContent = String(state.got);
   el.tallyMissed.textContent = String(state.missed);
+
+  el.btnRestart.hidden = !state.sessionComplete;
+
+  renderMissedPanel();
 
   if (!hasCards) {
     el.questionTitle.innerHTML = "";
@@ -207,12 +300,11 @@ function render(): void {
 
   el.flipCard.setAttribute("tabindex", "0");
 
-  const alreadyMarked = state.outcomes.has(state.index);
-  el.btnGot.disabled = alreadyMarked;
-  el.btnMissed.disabled = alreadyMarked;
+  el.btnGot.disabled = false;
+  el.btnMissed.disabled = false;
 
-  el.btnPrev.disabled = false;
-  el.btnNext.disabled = false;
+  el.btnPrev.disabled = state.index <= 0;
+  el.btnNext.disabled = state.index >= n - 1;
 
   const card = state.cards[state.index]!;
   el.questionTitle.innerHTML = renderTitleHtml(card.title);
@@ -231,7 +323,9 @@ function render(): void {
 function go(delta: number): void {
   const n = state.cards.length;
   if (n === 0) return;
-  state.index = (state.index + delta + n) % n;
+  const next = state.index + delta;
+  if (next < 0 || next >= n) return;
+  state.index = next;
   state.isFlipped = false;
   render();
 }
@@ -240,16 +334,45 @@ function markOutcome(kind: Outcome): void {
   const n = state.cards.length;
   if (n === 0) return;
   const i = state.index;
-  if (state.outcomes.has(i)) return;
+  const prev = state.outcomes.get(i);
+
+  if (prev === kind) return;
+
+  if (prev !== undefined) {
+    if (prev === "got") state.got -= 1;
+    else state.missed -= 1;
+    if (kind === "got") state.got += 1;
+    else state.missed += 1;
+    state.outcomes.set(i, kind);
+    state.isFlipped = false;
+    render();
+    return;
+  }
 
   state.outcomes.set(i, kind);
   if (kind === "got") state.got += 1;
   else state.missed += 1;
-
-  state.index = (state.index + 1) % n;
+  if (i < n - 1) {
+    state.index = i + 1;
+  } else {
+    state.sessionComplete = true;
+  }
   state.isFlipped = false;
   render();
 }
+
+function restartSession(): void {
+  state.got = 0;
+  state.missed = 0;
+  state.outcomes = new Map();
+  state.index = 0;
+  state.isFlipped = false;
+  state.sessionComplete = false;
+  state.missedPanelCollapsed = false;
+  render();
+}
+
+el.btnRestart.addEventListener("click", restartSession);
 
 el.btnOpen.addEventListener("click", () => el.fileInput.click());
 
@@ -285,11 +408,16 @@ el.btnMissed.addEventListener("click", () => markOutcome("missed"));
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "ArrowLeft") {
-    e.preventDefault();
-    go(-1);
+    if (state.cards.length > 0 && state.index > 0) {
+      e.preventDefault();
+      go(-1);
+    }
   } else if (e.key === "ArrowRight") {
-    e.preventDefault();
-    go(1);
+    const n = state.cards.length;
+    if (n > 0 && state.index < n - 1) {
+      e.preventDefault();
+      go(1);
+    }
   }
 });
 

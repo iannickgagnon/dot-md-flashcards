@@ -31,8 +31,8 @@ html[data-theme="dark"] {
   --link: #ffffff;
   --link-hover: rgba(255, 255, 255, 0.5);
   --code-bg: rgba(255, 255, 255, 0.06);
-  --card-bg: rgba(255, 255, 255, 0.03);
-  --tally-dot: rgba(255, 255, 255, 0.45);
+  /* Opaque sheets so stacked faces don’t read through each other */
+  --card-bg: #25282e;
 }
 
 html[data-theme="light"] {
@@ -56,7 +56,6 @@ html[data-theme="light"] {
   --link-hover: rgba(31, 34, 40, 0.5);
   --code-bg: rgba(31, 34, 40, 0.06);
   --card-bg: var(--bg);
-  --tally-dot: rgba(31, 34, 40, 0.45);
 }
 
 *,
@@ -84,8 +83,33 @@ body {
 #app {
   min-height: 100vh;
   padding: var(--space-page);
-  max-width: calc(var(--content-max) + 2 * var(--space-page));
+  max-width: min(calc(var(--content-max) + 280px + 48px + 2 * var(--space-page)), 100%);
   margin: 0 auto;
+}
+
+.app-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 280px);
+  gap: 24px;
+  align-items: start;
+}
+
+.app-layout__main {
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .app-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .app-layout__main {
+    order: 0;
+  }
+
+  .missed-panel {
+    order: 1;
+  }
 }
 
 .app-title {
@@ -121,23 +145,21 @@ body {
 }
 
 .tally {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 1rem 1.5rem;
   font-size: 14px;
   color: var(--text-muted);
+}
+
+.tally__part {
+  white-space: nowrap;
 }
 
 .tally strong {
   font-weight: 400;
   color: var(--text);
-}
-
-.tally .tally-missed-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 9999px;
-  background: var(--tally-dot);
-  margin: 0 4px 0 10px;
-  vertical-align: middle;
 }
 
 .btn-primary {
@@ -275,9 +297,8 @@ body {
 
 .flashcard {
   position: relative;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card-bg);
+  border: none;
+  background: transparent;
   min-height: 220px;
   overflow: visible;
 }
@@ -289,8 +310,8 @@ body {
   min-height: 200px;
   margin: 0;
   cursor: pointer;
-  perspective: 1000px;
   outline: none;
+  perspective: 1000px;
 }
 
 @media (max-width: 640px) {
@@ -307,9 +328,9 @@ body {
 
 .flashcard-flip__panel {
   position: relative;
-  transform-style: preserve-3d;
-  transition: transform 0.45s ease;
   min-height: 220px;
+  transform-style: preserve-3d;
+  transition: transform 0.65s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .flashcard-flip__panel.is-back {
@@ -319,15 +340,76 @@ body {
 .flashcard-face {
   position: absolute;
   inset: 0;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
   max-width: 100%;
   min-height: 220px;
   overflow: auto;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-subtle);
+  background: var(--card-bg);
+  background-clip: padding-box;
+  box-sizing: border-box;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--text) 6%, transparent),
+    0 10px 28px color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.flashcard-face--front {
+  transform: rotateY(0deg);
+  pointer-events: auto;
 }
 
 .flashcard-face--back {
   transform: rotateY(180deg);
+  pointer-events: none;
+}
+
+.flashcard-flip__panel.is-back .flashcard-face--front {
+  pointer-events: none;
+}
+
+.flashcard-flip__panel.is-back .flashcard-face--back {
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flashcard-flip {
+    perspective: none;
+  }
+
+  .flashcard-flip__panel,
+  .flashcard-flip__panel.is-back {
+    transform: none !important;
+    transition: opacity 0.12s ease;
+  }
+
+  .flashcard-face {
+    transition: opacity 0.12s ease;
+    backface-visibility: visible;
+    -webkit-backface-visibility: visible;
+  }
+
+  .flashcard-face--front,
+  .flashcard-face--back {
+    transform: none !important;
+  }
+
+  .flashcard-face--back {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .flashcard-flip__panel.is-back .flashcard-face--front {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .flashcard-flip__panel.is-back .flashcard-face--back {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .flashcard-hint {
@@ -485,6 +567,98 @@ body {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px 16px;
+}
+
+.missed-panel {
+  border: 1px solid var(--border);
+  background: var(--surface-subtle);
+  padding: 12px 0 0;
+  min-height: 120px;
+}
+
+.missed-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.missed-panel__title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.missed-panel__toggle {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--link);
+  background: none;
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.missed-panel__toggle:hover {
+  color: var(--link-hover);
+}
+
+.missed-panel__toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-subtle);
+}
+
+.missed-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: min(60vh, 480px);
+  overflow-y: auto;
+}
+
+.missed-panel--collapsed .missed-panel__list {
+  display: none;
+}
+
+.missed-panel__li {
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.missed-panel__li:last-child {
+  border-bottom: none;
+}
+
+.missed-panel__item {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.missed-panel__item:hover {
+  background: var(--surface-hover);
+}
+
+.missed-panel__item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
 
 .empty-hint {
