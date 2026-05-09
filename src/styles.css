@@ -279,14 +279,11 @@ body {
 }
 
 .drop-zone {
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-subtle);
   padding: 24px;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: background 0.15s ease;
 }
 
 .drop-zone.is-dragover {
-  border-color: var(--border-strong);
   background: var(--surface-hover);
 }
 
@@ -566,6 +563,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 12px 16px;
 }
 
