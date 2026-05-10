@@ -63,7 +63,7 @@ app.innerHTML = `
         Open markdown file
       </button>
       <input class="hidden-input" id="file-input" type="file" accept=".md,.markdown,text/markdown,text/x-markdown" />
-      <button type="button" class="btn-secondary" id="btn-sample">Load sample deck</button>
+      <button type="button" class="btn-secondary" id="btn-tutorial">Load tutorial deck</button>
       <button
         type="button"
         class="btn-secondary"
@@ -85,7 +85,7 @@ app.innerHTML = `
   <main class="app-layout">
     <div class="app-layout__main">
       <div class="drop-zone" id="drop-zone" tabindex="-1">
-        <p class="empty-hint" id="empty-hint">Drop a .md file here, use Open markdown file, or load the sample deck.</p>
+        <p class="empty-hint" id="empty-hint">Drop a .md file here, use Open markdown file, or load the tutorial deck.</p>
         <div class="flashcard-wrap" id="flashcard-wrap" hidden>
           <article class="flashcard" aria-label="Flashcard deck">
             <button type="button" class="nav-strip nav-strip--prev" id="btn-prev" aria-label="Previous flashcard">←</button>
@@ -166,7 +166,7 @@ app.innerHTML = `
 const el = {
   fileInput: app.querySelector<HTMLInputElement>("#file-input")!,
   btnOpen: app.querySelector<HTMLButtonElement>("#btn-open")!,
-  btnSample: app.querySelector<HTMLButtonElement>("#btn-sample")!,
+  btnTutorial: app.querySelector<HTMLButtonElement>("#btn-tutorial")!,
   btnTheme: app.querySelector<HTMLButtonElement>("#btn-theme")!,
   sessionReadout: app.querySelector<HTMLSpanElement>("#session-readout")!,
   tallyGot: app.querySelector<HTMLSpanElement>("#tally-got")!,
@@ -455,11 +455,11 @@ function loadDeck(text: string, label: string, fileHandle: FileSystemFileHandle 
   render();
 }
 
-async function loadSample(): Promise<void> {
-  const res = await fetch("/sample-deck.md");
-  if (!res.ok) throw new Error("Could not load sample deck");
+async function loadTutorialDeck(): Promise<void> {
+  const res = await fetch("/tutorial-deck.md");
+  if (!res.ok) throw new Error("Could not load tutorial deck");
   const text = await res.text();
-  loadDeck(text, "sample-deck.md", null);
+  loadDeck(text, "tutorial-deck.md", null);
 }
 
 function renderMissedPanel(): void {
@@ -661,9 +661,9 @@ el.fileInput.addEventListener("change", () => {
   reader.readAsText(file);
 });
 
-el.btnSample.addEventListener("click", () => {
-  void loadSample().catch(() => {
-    el.fileMeta.textContent = "Could not load sample deck.";
+el.btnTutorial.addEventListener("click", () => {
+  void loadTutorialDeck().catch(() => {
+    el.fileMeta.textContent = "Could not load tutorial deck.";
   });
 });
 
