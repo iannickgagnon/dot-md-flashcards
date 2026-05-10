@@ -9,6 +9,19 @@ import { renderAnswerHtml, renderTitleHtml } from "./renderMarkdown";
 
 const THEME_KEY = "markdown-flashcards-theme";
 
+/** User-chosen flashcard area height for this tab session only (no localStorage). */
+let flashcardViewportHeightPx: number | null = null;
+
+const FLASHCARD_VIEWPORT_MIN_PX = 220;
+
+function flashcardViewportMaxPx(): number {
+  return Math.max(FLASHCARD_VIEWPORT_MIN_PX, Math.floor(window.innerHeight * 0.92));
+}
+
+function clampFlashcardViewportHeight(h: number): number {
+  return Math.min(flashcardViewportMaxPx(), Math.max(FLASHCARD_VIEWPORT_MIN_PX, h));
+}
+
 const HLJS_THEME_LINK_ID = "hljs-syntax-theme";
 
 function syncHljsThemeLink(): void {
@@ -115,14 +128,21 @@ app.innerHTML = `
               aria-pressed="false"
               aria-label="Showing question. Click or press Enter to reveal the answer."
             >
-              <div class="flashcard-flip__panel" id="flip-panel">
-                <div class="flashcard-face flashcard-face--front">
-                  <h2 id="question-title"></h2>
-                  <p class="flashcard-hint">Click to reveal answer</p>
+              <div class="flashcard-flip__viewport" id="flashcard-viewport">
+                <div class="flashcard-flip__panel" id="flip-panel">
+                  <div class="flashcard-face flashcard-face--front">
+                    <h2 id="question-title"></h2>
+                    <p class="flashcard-hint">Click to reveal answer</p>
+                  </div>
+                  <div class="flashcard-face flashcard-face--back">
+                    <div class="answer prose" id="answer"></div>
+                  </div>
                 </div>
-                <div class="flashcard-face flashcard-face--back">
-                  <div class="answer prose" id="answer"></div>
-                </div>
+                <div
+                  class="flashcard-resize-handle"
+                  aria-label="Resize flashcard height"
+                  role="presentation"
+                ></div>
               </div>
             </div>
             <button type="button" class="nav-strip nav-strip--next" id="btn-next" aria-label="Next flashcard">→</button>
@@ -193,7 +213,9 @@ const el = {
   emptyHint: app.querySelector<HTMLParagraphElement>("#empty-hint")!,
   flashcardWrap: app.querySelector<HTMLDivElement>("#flashcard-wrap")!,
   flipCard: app.querySelector<HTMLDivElement>("#flashcard-flip")!,
+  flashcardViewport: app.querySelector<HTMLDivElement>("#flashcard-viewport")!,
   flipPanel: app.querySelector<HTMLDivElement>("#flip-panel")!,
+  flashcardResizeHandle: app.querySelector<HTMLDivElement>(".flashcard-resize-handle")!,
   questionTitle: app.querySelector<HTMLHeadingElement>("#question-title")!,
   answer: app.querySelector<HTMLDivElement>("#answer")!,
   btnPrev: app.querySelector<HTMLButtonElement>("#btn-prev")!,
@@ -243,7 +265,7 @@ function toggleFlip(): void {
 
 function flashcardFlipClick(e: MouseEvent): void {
   const t = e.target as Element;
-  if (t.closest("a") || t.closest("button")) return;
+  if (t.closest(".flashcard-resize-handle") || t.closest("a") || t.closest("button")) return;
   toggleFlip();
 }
 
@@ -264,9 +286,58 @@ function flashcardFlipKeydown(e: KeyboardEvent): void {
 el.flipCard.addEventListener("click", flashcardFlipClick);
 el.flipCard.addEventListener("keydown", flashcardFlipKeydown);
 
+let resizeDragStartY = 0;
+let resizeDragStartH = 0;
+
+function syncFlashcardViewportHeight(): void {
+  const vp = el.flashcardViewport;
+  if (flashcardViewportHeightPx === null) {
+    vp.style.removeProperty("height");
+  } else {
+    flashcardViewportHeightPx = clampFlashcardViewportHeight(flashcardViewportHeightPx);
+    vp.style.height = `${flashcardViewportHeightPx}px`;
+  }
+}
+
+function endFlashcardResizePointer(e: PointerEvent): void {
+  if (el.flashcardResizeHandle.hasPointerCapture(e.pointerId)) {
+    el.flashcardResizeHandle.releasePointerCapture(e.pointerId);
+  }
+  if (flashcardViewportHeightPx !== null) {
+    flashcardViewportHeightPx = clampFlashcardViewportHeight(flashcardViewportHeightPx);
+    syncFlashcardViewportHeight();
+  }
+}
+
+el.flashcardResizeHandle.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const rect = el.flashcardViewport.getBoundingClientRect();
+  resizeDragStartY = e.clientY;
+  resizeDragStartH = flashcardViewportHeightPx ?? rect.height;
+  el.flashcardResizeHandle.setPointerCapture(e.pointerId);
+});
+
+el.flashcardResizeHandle.addEventListener("pointermove", (e) => {
+  if (!el.flashcardResizeHandle.hasPointerCapture(e.pointerId)) return;
+  const dy = e.clientY - resizeDragStartY;
+  flashcardViewportHeightPx = clampFlashcardViewportHeight(resizeDragStartH + dy);
+  syncFlashcardViewportHeight();
+});
+
+el.flashcardResizeHandle.addEventListener("pointerup", endFlashcardResizePointer);
+el.flashcardResizeHandle.addEventListener("pointercancel", endFlashcardResizePointer);
+
+window.addEventListener("resize", () => {
+  if (flashcardViewportHeightPx === null) return;
+  flashcardViewportHeightPx = clampFlashcardViewportHeight(flashcardViewportHeightPx);
+  syncFlashcardViewportHeight();
+});
+
 el.flipCard.addEventListener("contextmenu", (e) => {
   const t = e.target as Element;
-  if (t.closest("a") || t.closest("button")) return;
+  if (t.closest(".flashcard-resize-handle") || t.closest("a") || t.closest("button")) return;
   if (state.cards.length === 0) return;
   e.preventDefault();
   openEditCardDialog();
@@ -599,6 +670,7 @@ function render(): void {
     el.btnPrev.disabled = true;
     el.btnNext.disabled = true;
     el.btnEditCard.disabled = true;
+    syncFlashcardViewportHeight();
     return;
   }
 
@@ -632,6 +704,8 @@ function render(): void {
       ? "Showing answer. Click or press Enter to show the question. Press E to edit this card."
       : "Showing question. Click or press Enter to reveal the answer. Press E to edit this card.",
   );
+
+  syncFlashcardViewportHeight();
 }
 
 function go(delta: number): void {

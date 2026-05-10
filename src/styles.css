@@ -323,11 +323,38 @@ body {
   border-radius: var(--radius-subtle);
 }
 
+.flashcard-flip__viewport {
+  position: relative;
+  width: 100%;
+  min-height: 220px;
+}
+
 .flashcard-flip__panel {
   position: relative;
+  height: 100%;
   min-height: 220px;
   transform-style: preserve-3d;
   transition: transform 0.65s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.flashcard-resize-handle {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  opacity: 0.85;
+  cursor: se-resize;
+  touch-action: none;
+  z-index: 4;
+  pointer-events: auto;
+}
+
+.flashcard-resize-handle:hover {
+  opacity: 1;
 }
 
 .flashcard-flip__panel.is-back {
@@ -338,7 +365,7 @@ body {
   position: absolute;
   inset: 0;
   max-width: 100%;
-  min-height: 220px;
+  min-height: 0;
   overflow: auto;
   padding: 20px 22px;
   border: 1px solid var(--border);
