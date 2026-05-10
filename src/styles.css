@@ -644,7 +644,9 @@ body {
 }
 
 .missed-panel__item {
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   width: 100%;
   padding: 10px 12px;
   border: none;
@@ -657,8 +659,46 @@ body {
   cursor: pointer;
 }
 
+.missed-panel__status {
+  flex: 0 0 1.375rem;
+  width: 1.375rem;
+  min-height: 1em;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 0.05em;
+}
+
+.missed-panel__status-icon {
+  opacity: 0.5;
+  font-size: 0.95em;
+  line-height: 1.4;
+}
+
+.missed-panel__status--got .missed-panel__status-icon {
+  color: #22c55e;
+}
+
+.missed-panel__status--missed .missed-panel__status-icon {
+  color: #ef4444;
+}
+
+.missed-panel__label {
+  flex: 1;
+  min-width: 0;
+}
+
 .missed-panel__item:hover {
   background: var(--surface-hover);
+}
+
+.missed-panel__item--active {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  box-shadow: inset 3px 0 0 var(--text-muted);
+}
+
+.missed-panel__item--active:hover {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
 }
 
 .missed-panel__item:focus-visible {

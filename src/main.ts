@@ -137,7 +137,7 @@ app.innerHTML = `
     </div>
     <aside class="missed-panel" id="missed-panel" hidden>
       <div class="missed-panel__head">
-        <span class="missed-panel__title" id="missed-panel-title">Missed</span>
+        <span class="missed-panel__title" id="missed-panel-title">Questions</span>
         <button
           type="button"
           class="missed-panel__toggle"
@@ -481,16 +481,16 @@ async function loadTutorialDeck(): Promise<void> {
   loadDeck(text, "tutorial-deck.md", null);
 }
 
-function renderMissedPanel(): void {
-  const m = state.missed;
-  el.missedPanel.hidden = m === 0;
+function renderDeckPanel(): void {
+  const n = state.cards.length;
+  el.missedPanel.hidden = n === 0;
 
-  if (m === 0) {
+  if (n === 0) {
     el.missedList.innerHTML = "";
     return;
   }
 
-  el.missedPanelTitle.textContent = `Missed (${m})`;
+  el.missedPanelTitle.textContent = `Questions (${n})`;
   el.missedPanel.classList.toggle("missed-panel--collapsed", state.missedPanelCollapsed);
   el.btnMissedPanelToggle.textContent = state.missedPanelCollapsed ? "Show" : "Hide";
   el.btnMissedPanelToggle.setAttribute(
@@ -499,22 +499,46 @@ function renderMissedPanel(): void {
   );
 
   el.missedList.innerHTML = "";
-  const indices = [...state.outcomes.entries()]
-    .filter(([, o]) => o === "missed")
-    .map(([i]) => i)
-    .sort((a, b) => a - b);
-
-  for (const i of indices) {
-    const card = state.cards[i];
-    if (!card) continue;
+  for (let i = 0; i < n; i++) {
+    const card = state.cards[i]!;
     const li = document.createElement("li");
     li.className = "missed-panel__li";
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "missed-panel__item";
+    if (i === state.index) {
+      btn.classList.add("missed-panel__item--active");
+      btn.setAttribute("aria-current", "true");
+    }
     btn.dataset.index = String(i);
-    btn.textContent = titlePlainForList(card.title);
-    btn.setAttribute("aria-label", `Go to card ${i + 1}: ${titlePlainForList(card.title)}`);
+    const plain = titlePlainForList(card.title);
+    btn.setAttribute("aria-label", `Go to card ${i + 1}: ${plain}`);
+
+    const status = document.createElement("span");
+    status.className = "missed-panel__status";
+    const outcome = state.outcomes.get(i);
+    if (outcome === "got") {
+      status.classList.add("missed-panel__status--got");
+      const icon = document.createElement("span");
+      icon.className = "missed-panel__status-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = "✓";
+      status.appendChild(icon);
+    } else if (outcome === "missed") {
+      status.classList.add("missed-panel__status--missed");
+      const icon = document.createElement("span");
+      icon.className = "missed-panel__status-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = "✗";
+      status.appendChild(icon);
+    }
+
+    const label = document.createElement("span");
+    label.className = "missed-panel__label";
+    label.textContent = plain;
+
+    btn.appendChild(status);
+    btn.appendChild(label);
     li.appendChild(btn);
     el.missedList.appendChild(li);
   }
@@ -552,7 +576,7 @@ function render(): void {
 
   el.btnRestart.hidden = !state.sessionComplete;
 
-  renderMissedPanel();
+  renderDeckPanel();
 
   if (!hasCards) {
     el.questionTitle.innerHTML = "";
