@@ -644,6 +644,11 @@ function go(delta: number): void {
   render();
 }
 
+function syncSessionComplete(): void {
+  const n = state.cards.length;
+  state.sessionComplete = n > 0 && state.outcomes.size === n;
+}
+
 function markOutcome(kind: Outcome): void {
   const n = state.cards.length;
   if (n === 0) return;
@@ -659,6 +664,7 @@ function markOutcome(kind: Outcome): void {
     else state.missed += 1;
     state.outcomes.set(i, kind);
     state.isFlipped = false;
+    syncSessionComplete();
     render();
     return;
   }
@@ -668,10 +674,9 @@ function markOutcome(kind: Outcome): void {
   else state.missed += 1;
   if (i < n - 1) {
     state.index = i + 1;
-  } else {
-    state.sessionComplete = true;
   }
   state.isFlipped = false;
+  syncSessionComplete();
   render();
 }
 
