@@ -1,11 +1,29 @@
 import "@fontsource/geist/latin-300.css";
 import "@fontsource/geist/latin-400.css";
 import "@fontsource/geist-mono/latin-400.css";
+import hljsGithubDarkUrl from "highlight.js/styles/github-dark.css?url";
+import hljsGithubUrl from "highlight.js/styles/github.css?url";
 import "./styles.css";
 import { parseFlashcards, serializeDeck, type Flashcard } from "./parseFlashcards";
 import { renderAnswerHtml, renderTitleHtml } from "./renderMarkdown";
 
 const THEME_KEY = "markdown-flashcards-theme";
+
+const HLJS_THEME_LINK_ID = "hljs-syntax-theme";
+
+function syncHljsThemeLink(): void {
+  let link = document.getElementById(HLJS_THEME_LINK_ID) as HTMLLinkElement | null;
+  if (!link) {
+    link = document.createElement("link");
+    link.id = HLJS_THEME_LINK_ID;
+    link.rel = "stylesheet";
+    document.head.appendChild(link);
+  }
+  const t = document.documentElement.dataset.theme;
+  link.href = t === "light" ? hljsGithubUrl : hljsGithubDarkUrl;
+}
+
+syncHljsThemeLink();
 
 function getTheme(): "light" | "dark" {
   const t = document.documentElement.dataset.theme;
@@ -208,6 +226,7 @@ function syncThemeButton(): void {
 function setTheme(theme: "light" | "dark"): void {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem(THEME_KEY, theme);
+  syncHljsThemeLink();
   syncThemeButton();
 }
 
