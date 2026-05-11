@@ -833,12 +833,12 @@ function canMarkOutcomeFromShortcut(): boolean {
 }
 
 window.addEventListener("keydown", (e) => {
-  if (e.key === "ArrowLeft") {
+  if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
     if (state.cards.length > 0 && state.index > 0) {
       e.preventDefault();
       go(-1);
     }
-  } else if (e.key === "ArrowRight") {
+  } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
     const n = state.cards.length;
     if (n > 0 && state.index < n - 1) {
       e.preventDefault();
