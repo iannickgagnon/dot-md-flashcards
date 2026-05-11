@@ -92,11 +92,13 @@ app.innerHTML = `
     <h1 class="app-title">.md flashcards</h1>
     <div class="header-tools">
       <button type="button" class="btn-theme" id="btn-theme">Light</button>
-      <button type="button" class="btn-secondary" id="btn-open" aria-controls="file-input">
-        Open markdown file
+      <button type="button" class="btn-secondary" id="btn-open" aria-controls="file-input" aria-label="Open markdown file">
+        Open
       </button>
       <input class="hidden-input" id="file-input" type="file" accept=".md,.markdown,text/markdown,text/x-markdown" />
-      <button type="button" class="btn-secondary" id="btn-tutorial">Load tutorial deck</button>
+      <button type="button" class="btn-secondary" id="btn-tutorial" aria-label="Load tutorial deck">
+        Tutorial
+      </button>
       <button
         type="button"
         class="btn-secondary"
@@ -105,7 +107,7 @@ app.innerHTML = `
         aria-controls="edit-card-dialog"
         aria-label="Edit current flashcard"
       >
-        Edit card
+        Edit
       </button>
       <button
         type="button"
@@ -115,7 +117,7 @@ app.innerHTML = `
         aria-controls="edit-card-dialog"
         aria-label="Add flashcard at end of deck"
       >
-        Add card
+        Add
       </button>
       <button
         type="button"
@@ -124,7 +126,7 @@ app.innerHTML = `
         disabled
         aria-label="Delete current flashcard"
       >
-        Delete card
+        Delete
       </button>
       <span class="mono-label" id="session-readout" aria-live="polite">Card 0 / 0</span>
       <span class="tally mono-label" id="tally" aria-live="polite">
@@ -137,7 +139,7 @@ app.innerHTML = `
   <main class="app-layout">
     <div class="app-layout__main">
       <div class="drop-zone" id="drop-zone" tabindex="-1">
-        <p class="empty-hint" id="empty-hint">Drop a .md file here, use Open markdown file, or load the tutorial deck.</p>
+        <p class="empty-hint" id="empty-hint">Drop a .md file here, use Open, or Tutorial.</p>
         <div class="flashcard-wrap" id="flashcard-wrap" hidden>
           <article class="flashcard" aria-label="Flashcard deck">
             <button type="button" class="nav-strip nav-strip--prev" id="btn-prev" aria-label="Previous flashcard">‹</button>
