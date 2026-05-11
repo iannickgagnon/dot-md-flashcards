@@ -21,7 +21,7 @@ I used the xAI theme from [https://getdesign.md/](https://getdesign.md/).
 
 Static single-page application (SPA) for studying flashcards defined in Markdown. Each card is a level-2 heading (`##`) and a Markdown answer body. The build output is static assets only; there is no application server. Decks can be opened from disk, edited in the browser, and written back when the host browser exposes a suitable file handle (see [Browsers](#browsers)).
 
-Further authoring rules, examples, and prompts for generators are in [`DECK_FORMAT.md`](DECK_FORMAT.md) and in [`public/tutorial-deck.md`](public/tutorial-deck.md) (in-app **Tutorial**).
+Further examples for generators are in [`public/tutorial-deck.md`](public/tutorial-deck.md) (in-app **Tutorial**).
 
 ## Requirements
 
