@@ -119,7 +119,7 @@ app.innerHTML = `
         <p class="empty-hint" id="empty-hint">Drop a .md file here, use Open markdown file, or load the tutorial deck.</p>
         <div class="flashcard-wrap" id="flashcard-wrap" hidden>
           <article class="flashcard" aria-label="Flashcard deck">
-            <button type="button" class="nav-strip nav-strip--prev" id="btn-prev" aria-label="Previous flashcard">←</button>
+            <button type="button" class="nav-strip nav-strip--prev" id="btn-prev" aria-label="Previous flashcard">‹</button>
             <div
               class="flashcard-flip"
               id="flashcard-flip"
@@ -145,7 +145,7 @@ app.innerHTML = `
                 ></div>
               </div>
             </div>
-            <button type="button" class="nav-strip nav-strip--next" id="btn-next" aria-label="Next flashcard">→</button>
+            <button type="button" class="nav-strip nav-strip--next" id="btn-next" aria-label="Next flashcard">›</button>
           </article>
         </div>
         <div class="actions">
