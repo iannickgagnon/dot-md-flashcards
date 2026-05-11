@@ -11,6 +11,8 @@ I created this project to use alongside my knowledge base which is mostly in Mar
 
 It's intentionally low-tech, so I will (try to) resist adding the features I don't need that come with other apps (statistics, card themes, etc.). You are absolutely welcome to implement them in your own copy.
 
+I used the xAI theme from [https://getdesign.md/](https://getdesign.md/).
+
 ## Overview
 
 Static single-page application (SPA) for studying flashcards defined in Markdown. Each card is a level-2 heading (`##`) and a Markdown answer body. The build output is static assets only; there is no application server. Decks can be opened from disk, edited in the browser, and written back when the host browser exposes a suitable file handle (see [Browsers](#browsers)).
