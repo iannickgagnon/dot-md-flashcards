@@ -1,134 +1,135 @@
-# Markdown flashcards
+# dot-md-flashcards
 
-A small, static **single-page app** for studying flashcards stored as plain **Markdown** (`.md`). Each card is a level-2 heading (`##`) plus a free-form Markdown answer. Edit cards in the browser, track **GOT IT** / **MISSED IT**, and—with a supporting browser—**write changes back to the same file** on disk.
+<div align="center">
+  <img src="docs/images/main_with_loaded_tutorial_deck.jpg" alt="Flashcard study view" width="800" style="border: 2px solid #000;">
+  <p><em>Main UI with the tutorial deck loaded (see below)</em></p>
+</div>
 
-No accounts, no server runtime: build output is static files you can host on any HTTPS-capable host or run locally.
+## Why another flashcard app ?
 
-## Quick start
+I created this project to use alongside my knowledge base which is mostly in Markdown format (`.md`). I wanted a simple framework that allowed me to create flashcards from my notes using an LLM and open them in a barebones UI to study them.
 
-### Prerequisites
+It's intentionally low-tech, so I will try to resist the urge of adding the features I don't need that come with other apps (statistics, card themes, etc.). You are absolutely welcome to implement them in your own copy.
 
-- [Node.js](https://nodejs.org/) (current LTS is fine)
-- **npm** (bundled with Node)
+## Overview
 
-### Fork or clone
+Static single-page application (SPA) for studying flashcards defined in Markdown. Each card is a level-2 heading (`##`) and a Markdown answer body. The build output is static assets only; there is no application server. Decks can be opened from disk, edited in the browser, and written back when the host browser exposes a suitable file handle (see [Browsers](#browsers)).
 
-1. Fork this repository on your Git host (GitHub, etc.) if you want your own copy to change.
-2. Clone your fork (or this repo) to your machine:
+Further authoring rules, examples, and prompts for generators are in [`DECK_FORMAT.md`](DECK_FORMAT.md) and in [`public/tutorial-deck.md`](public/tutorial-deck.md) (in-app **Tutorial**).
 
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/markdown_flashcards.git
-   cd markdown_flashcards
-   # or whatever you named the folder
-   ```
+## Requirements
 
-3. Install dependencies and start the dev server:
+- [Node.js](https://nodejs.org/)
+- [npm](https://www.npmjs.com/)
 
-   ```bash
-   npm install
-   npm run dev
-   ```
+## Clone and run locally
 
-4. Open the URL Vite prints (usually `http://localhost:5173`).
+```bash
+git clone https://github.com/iannickgagnon/dot-md-flashcards.git
+cd dot-md-flashcards
+npm install
+npm run dev
+```
 
-### Production build
+Open the URL printed by the dev server. Because [`vite.config.ts`](vite.config.ts) sets `base` to `/dot-md-flashcards/`, local URLs use that path prefix.
+
+## Build
 
 ```bash
 npm run build
-npm run preview   # optional: serve dist/ locally to verify
+npm run preview
 ```
 
-The `dist/` folder contains HTML, JS, and CSS only—deploy it to static hosting (GitHub Pages, Netlify, S3, etc.).
+Output is written to `dist/`.
 
-## How to use the app
+## GitHub Pages
 
-### Loading a deck
+The steps below apply to your own fork or copy hosted on GitHub Pages. If the repository is named `dot-md-flashcards`, substitute only your GitHub user or organization for `<github-username>`. **If you rename the repository**, set `base` in [`vite.config.ts`](vite.config.ts) to `"/<new-repo-name>/"` (leading and trailing slash) and use `https://<github-username>.github.io/<new-repo-name>/` as the site URL.
 
-- **Open** — Pick a `.md` file. In Chromium with the File System Access API, the app keeps a **file handle** so later saves can go **in place**.
-- **New** — Choose where to save a new empty `.md` file, then use **Add** to create cards (requires a browser that supports the save picker; see [Browsers and saving](#browsers-and-saving)).
-- **Tutorial** — Loads the bundled tutorial deck from [`public/tutorial-deck.md`](public/tutorial-deck.md).
-- **Drag and drop** — Drop a `.md` file onto the drop zone. Chromium may attach a handle so saves can sync to that file.
+The repository includes [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml). Published URL for a default project site: `https://<github-username>.github.io/dot-md-flashcards/`.
 
-### Header actions (compact labels)
+Steps:
 
-| Control   | Purpose |
-|-----------|---------|
-| Theme     | Toggle light / dark (stored in `localStorage`; respects system preference on first visit). |
-| Open      | Open a Markdown file from disk. |
-| New       | Create a new deck via save dialog. |
-| Tutorial  | Load the built-in tutorial. |
-| Edit      | Edit the **current** card (needs at least one card). |
-| Add       | Add a card at the end (enabled when a deck is “in session”—e.g. file loaded or **New** completed). |
-| Delete    | Remove the current card (with confirmation). |
+1. In the GitHub repository: **Settings**, **Pages**, **Build and deployment**: set **Source** to **GitHub Actions**.
+2. Push to `main` (or change the workflow branch if the default branch differs).
+3. After a successful run, open the URL above with your account or organization name substituted for `<github-username>`.
+4. If the page is blank, confirm the repository name still matches the path segment and that `base` in `vite.config.ts` matches that segment.
 
-### Studying
+For this repository, `npm run dev` and production builds use `base: "/dot-md-flashcards/"` so asset URLs align with the default project path.
 
-- **Flip** — Click the card, or focus it and press **Enter** or **Space**. **Links** and **buttons** do not flip the card. With **prefers-reduced-motion**, flip becomes a short crossfade.
-- **Navigation** — Side chevrons or **Arrow** keys (←/→/↑/↓) between cards.
-- **GOT IT** / **MISSED IT** — Score the current card; first mark usually advances (except on the last card). Press the same control again to **clear** the mark. Keys: **G** and **M** (disabled while typing or when the edit dialog is open).
-- **RESTART** — Appears when every card is marked; resets scores and marks. **R** when the button is visible.
-- **Sidebar** — Lists all cards with status icons; click a row to jump. **Hide** / **Show** collapses the list (on small screens the layout stacks).
+## Usage
 
-### Editing and saving
+The application is intended to be self-explanatory, but this section describes a few features and shortcuts I added for convenience.
 
-- Open the editor with **Edit**, **Add**, **right-click** the card surface (not a link), or **E** while the card is focused.
-- **Save** in the dialog writes the **entire deck** Markdown (serialized from the in-memory model). If the app has a **writable file handle**, it saves **in place**. Otherwise it may prompt for a location (behavior depends on browser and how the deck was opened).
+### Decks
 
-## Deck file format
+Use the top controls to start or manage a deck:
 
-- Each card starts with a line `## Your question` (level-2 heading only; `#` / `###` do **not** start cards).
-- Everything until the next `##` or end of file is the **answer** (GitHub-flavored Markdown: code fences, lists, links, etc.).
-- Optional **preamble** before the first `##` is kept in the file but not shown as a card.
+| Control | Purpose |
+|---|---|
+| **Open** | Select an existing deck file. |
+| **New** | Create an empty deck using a save dialog. |
+| **Tutorial** | Load the bundled tutorial deck. |
+| **Drag & drop** | Drop a `.md` file onto the drop zone to load it. |
 
-Authoring rules, examples, and LLM-oriented prompts are in **`DECK_FORMAT.md`** and inside the in-app **Tutorial** deck.
+In Chromium-based browsers, the app may keep a file handle, allowing future saves to update the same file directly.
 
-## Browsers and saving
+### Header Controls
 
-- **Reading** decks works broadly (open file picker or drag-and-drop text).
-- **Writing** the same file back reliably needs a [**secure context**](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts): **`https://`** or **`http://localhost`** (or `127.0.0.1`).
-- **Save-in-place** and **New** work best in **Chromium-based** browsers (Chrome, Edge, …) with the [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API). Other browsers may still run the app but fall back to download-style flows or in-tab-only edits.
+| Control | Description |
+|---|---|
+| **Theme** | Switch between light and dark mode. The choice is saved in `localStorage`. |
+| **Open** | Load a deck from a file. |
+| **New** | Create a new empty deck. |
+| **Tutorial** | Load the bundled tutorial deck. |
+| **Edit** | Edit the current card. |
+| **Add** | Append a new card.|
+| **Delete** | Delete the current card. |
 
-## Keyboard shortcuts (reference)
+### Studying Cards
 
-| Key | Action |
-|-----|--------|
-| Enter / Space | Flip card (when focused, not in a link). |
-| E | Edit current card. |
-| G | GOT IT |
-| M | MISSED IT |
-| R | Restart session (when **RESTART** is shown). |
-| Arrow keys | Previous / next card. |
+Click a card to flip it, or focus the card and press **Enter** or **Space**.
 
-## Project layout
+Use the side controls or arrow keys to move between cards.
+
+| Control | Behavior |
+|---|---|
+| **GOT IT** | Mark the current card as understood. Equivalent to `G` key. |
+| **MISSED IT** | Mark the current card as missed. Equivalent to `M` key. |
+| **RESTART** | Appears once all cards have been marked. Equivalent to `R` key. |
+
+The sidebar lists all cards and lets you jump directly to any card.
+
+### Editing Cards
+
+You can edit a card in any of the following ways:
+
+| Method | Action |
+|---|---|
+| **Edit** button | Edit the current card. Equivalent to `E` key. |
+| **Add** button | Append a new card. |
+
+Use **Save** to serialize the full deck. Save behavior depends on browser support and whether a file handle is available.
+
+## Deck format (summary)
+
+- **Card delimiter:** line starting with `## ` (only level-2 headings start cards).
+- **Answer:** Markdown from that line until the next `##` or end of file.
+
+> [!TIP]
+> The deck format is described in [`public/tutorial-deck.md`](public/tutorial-deck.md) and can be loaded by clicking **Tutorial** in the header. **Feed it to your LLM to make it generate decks/questions for you.**
+
+## Layout
 
 | Path | Role |
 |------|------|
-| [`src/main.ts`](src/main.ts) | App bootstrap, deck I/O wiring, shortcuts, drag-and-drop. |
-| [`src/study/renderStudyUi.ts`](src/study/renderStudyUi.ts) | Main UI rendering and flashcard chrome. |
-| [`src/app/context.ts`](src/app/context.ts) | Shared application state and DOM refs. |
-| [`src/fs/markdownFileWriter.ts`](src/fs/markdownFileWriter.ts) | File System Access write helpers. |
-| [`src/parseFlashcards.ts`](src/parseFlashcards.ts) | Parse / serialize `.md` decks. |
-| [`src/renderMarkdown.ts`](src/renderMarkdown.ts) | Sanitized Markdown → HTML (Marked, DOMPurify, highlight.js). |
-| [`public/tutorial-deck.md`](public/tutorial-deck.md) | Bundled tutorial and authoring hints. |
-| [`DECK_FORMAT.md`](DECK_FORMAT.md) | Detailed format and study UX notes. |
+| [`src/main.ts`](src/main.ts) | Bootstrap, file IO wiring, shortcuts, drag and drop |
+| [`src/study/renderStudyUi.ts`](src/study/renderStudyUi.ts) | Main UI and flashcard chrome |
+| [`src/app/context.ts`](src/app/context.ts) | Application state and DOM references |
+| [`src/fs/markdownFileWriter.ts`](src/fs/markdownFileWriter.ts) | File System Access writes |
+| [`src/parseFlashcards.ts`](src/parseFlashcards.ts) | Parse and serialize decks |
+| [`src/renderMarkdown.ts`](src/renderMarkdown.ts) | Markdown to HTML (Marked, DOMPurify, highlight.js) |
 
-## Tech stack
+## Dependencies
 
-- [Vite](https://vitejs.dev/) — dev server and production bundling  
-- [TypeScript](https://www.typescriptlang.org/)  
-- [marked](https://marked.js.org/) + [DOMPurify](https://github.com/cure53/DOMPurify) + [highlight.js](https://highlightjs.org/) — Markdown and code blocks  
-- [@fontsource/geist](https://fontsource.org/) — fonts  
-
-## Contributing
-
-Issues and pull requests are welcome. After changes, run:
-
-```bash
-npm run build
-```
-
-to confirm TypeScript and the production build succeed.
-
-## License
-
-This repository does not include a default **LICENSE** file. Add one in your fork if you need explicit terms for reuse.
+[Vite](https://vitejs.dev/), [TypeScript](https://www.typescriptlang.org/), [marked](https://marked.js.org/), [DOMPurify](https://github.com/cure53/DOMPurify), [highlight.js](https://highlightjs.org/), [Geist via Fontsource](https://fontsource.org/).
