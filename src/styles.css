@@ -149,8 +149,6 @@ body {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 1rem 1.5rem;
-  font-size: 14px;
-  color: var(--text-muted);
 }
 
 .tally__part {

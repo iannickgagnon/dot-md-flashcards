@@ -106,9 +106,9 @@ app.innerHTML = `
         Edit card
       </button>
       <span class="mono-label" id="session-readout" aria-live="polite">Card 0 / 0</span>
-      <span class="tally" id="tally" aria-live="polite">
-        <span class="tally__part">Got <strong id="tally-got">0</strong></span>
-        <span class="tally__part">Missed <strong id="tally-missed">0</strong></span>
+      <span class="tally mono-label" id="tally" aria-live="polite">
+        <span class="tally__part">GOT <strong id="tally-got">0</strong></span>
+        <span class="tally__part">MISSED <strong id="tally-missed">0</strong></span>
       </span>
     </div>
     <p class="file-meta" id="file-meta"></p>
