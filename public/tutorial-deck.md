@@ -67,6 +67,7 @@ The app **sanitizes** HTML for safety—stick to normal Markdown.
 - **GOT IT** / **MISSED IT** — First mark usually **advances** (not from the **last** card). Pressing the **same** control again **clears** the mark. Keys: **G** = GOT, **M** = MISSED (disabled while **typing in fields** or if the **edit dialog** is open).
 - **RESTART** — Shown only when **every** card has been marked. Key **R** when visible. **Ctrl/Cmd+R** (refresh) stays a **browser** shortcut.
 - **Navigation** — Chevrons, or **Arrow** Left/Right/Up/Down.
+- **New** — Save an empty linked `.md` deck, then use **Add** to build cards (needs **HTTPS** or **localhost** and a browser that supports **Save** from the app).
 - **Edit** — **Right-click** the card (not a link), **Edit card** in the header, or **E** with focus on the card.
 - **Add / delete** — **Add card** opens the same dialog (empty) and appends on save; **Delete card** removes the current card after confirmation.
 - **Open / save** — **Open markdown file** or **drag** a **`.md`** file. Best **save-in-place** in **Chromium** with the **file picker** or a drag that yields a **file handle**; use **https** or **localhost**.

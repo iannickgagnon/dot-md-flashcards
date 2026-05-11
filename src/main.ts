@@ -9,6 +9,16 @@ import { renderAnswerHtml, renderTitleHtml } from "./renderMarkdown";
 
 const THEME_KEY = "markdown-flashcards-theme";
 
+const MARKDOWN_PICKER_TYPES: Array<{ description: string; accept: Record<string, string[]> }> = [
+  {
+    description: "Markdown",
+    accept: { "text/markdown": [".md", ".markdown"] },
+  },
+];
+
+const EMPTY_HINT_NO_DECK = "Drop a .md file here, use Open, New, or Tutorial.";
+const EMPTY_HINT_LINKED_NO_CARDS = "This deck has no cards yet. Use Add to create one.";
+
 /** User-chosen flashcard area height for this tab session only (no localStorage). */
 let flashcardViewportHeightPx: number | null = null;
 
@@ -96,6 +106,9 @@ app.innerHTML = `
         Open
       </button>
       <input class="hidden-input" id="file-input" type="file" accept=".md,.markdown,text/markdown,text/x-markdown" />
+      <button type="button" class="btn-secondary" id="btn-new" aria-label="Create new deck and save as markdown file">
+        New
+      </button>
       <button type="button" class="btn-secondary" id="btn-tutorial" aria-label="Load tutorial deck">
         Tutorial
       </button>
@@ -139,7 +152,7 @@ app.innerHTML = `
   <main class="app-layout">
     <div class="app-layout__main">
       <div class="drop-zone" id="drop-zone" tabindex="-1">
-        <p class="empty-hint" id="empty-hint">Drop a .md file here, use Open, or Tutorial.</p>
+        <p class="empty-hint" id="empty-hint">${EMPTY_HINT_NO_DECK}</p>
         <div class="flashcard-wrap" id="flashcard-wrap" hidden>
           <article class="flashcard" aria-label="Flashcard deck">
             <button type="button" class="nav-strip nav-strip--prev" id="btn-prev" aria-label="Previous flashcard">‹</button>
@@ -233,6 +246,7 @@ app.innerHTML = `
 const el = {
   fileInput: app.querySelector<HTMLInputElement>("#file-input")!,
   btnOpen: app.querySelector<HTMLButtonElement>("#btn-open")!,
+  btnNew: app.querySelector<HTMLButtonElement>("#btn-new")!,
   btnTutorial: app.querySelector<HTMLButtonElement>("#btn-tutorial")!,
   btnTheme: app.querySelector<HTMLButtonElement>("#btn-theme")!,
   sessionReadout: app.querySelector<HTMLSpanElement>("#session-readout")!,
@@ -422,13 +436,6 @@ async function syncDeckToDisk(): Promise<void> {
   const win = window as WindowWithFileSystemAccess;
   const md = serializeDeck(state.deckPreamble, state.cards);
 
-  const markdownPickerTypes = [
-    {
-      description: "Markdown",
-      accept: { "text/markdown": [".md", ".markdown"] },
-    },
-  ];
-
   async function pickSaveAndWrite(): Promise<void> {
     if (!win.showSaveFilePicker) {
       const n = state.cards.length;
@@ -443,7 +450,7 @@ async function syncDeckToDisk(): Promise<void> {
     try {
       handle = await win.showSaveFilePicker({
         suggestedName: deckDownloadFilename(),
-        types: markdownPickerTypes,
+        types: MARKDOWN_PICKER_TYPES,
         ...(startIn ? { startIn } : {}),
       });
     } catch (e) {
@@ -474,6 +481,48 @@ async function syncDeckToDisk(): Promise<void> {
   }
 
   await pickSaveAndWrite();
+}
+
+async function createNewDeck(): Promise<void> {
+  const win = window as WindowWithFileSystemAccess;
+  if (!win.showSaveFilePicker) {
+    el.fileMeta.textContent =
+      "This browser cannot save a new deck file here. Use HTTPS or localhost with a supported browser, or Open an existing file.";
+    return;
+  }
+  const startIn = state.deckFolderHint ?? state.deckFileHandle ?? undefined;
+  let handle: FileSystemFileHandle;
+  try {
+    handle = await win.showSaveFilePicker({
+      suggestedName: "new-deck.md",
+      types: MARKDOWN_PICKER_TYPES,
+      ...(startIn ? { startIn } : {}),
+    });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") return;
+    el.fileMeta.textContent = "Could not create new deck.";
+    return;
+  }
+  const md = serializeDeck(null, []);
+  try {
+    await writeTextToFileHandle(handle, md);
+  } catch {
+    el.fileMeta.textContent = "Could not write new deck file.";
+    return;
+  }
+  state.cards = [];
+  state.deckPreamble = null;
+  state.deckFileHandle = handle;
+  state.deckFolderHint = handle;
+  state.fileLabel = handle.name;
+  state.index = 0;
+  state.got = 0;
+  state.missed = 0;
+  state.outcomes = new Map();
+  state.sessionComplete = false;
+  state.isFlipped = false;
+  state.missedPanelCollapsed = false;
+  render();
 }
 
 async function openMarkdownDeck(): Promise<void> {
@@ -747,6 +796,8 @@ function render(): void {
 
   el.emptyHint.hidden = hasCards;
   el.flashcardWrap.hidden = !hasCards;
+  el.emptyHint.textContent =
+    !hasCards && state.fileLabel !== null ? EMPTY_HINT_LINKED_NO_CARDS : EMPTY_HINT_NO_DECK;
 
   el.fileMeta.textContent = state.fileLabel
     ? `${state.fileLabel} · ${n} card${n === 1 ? "" : "s"}`
@@ -767,7 +818,9 @@ function render(): void {
     el.flipCard.setAttribute("aria-pressed", "false");
     el.flipCard.setAttribute(
       "aria-label",
-      "No cards loaded. Open a markdown deck to study.",
+      state.fileLabel
+        ? "No flashcards in this deck yet. Use Add to create a card."
+        : "No cards loaded. Open a markdown deck to study.",
     );
     el.flipCard.setAttribute("tabindex", "-1");
     el.btnGot.disabled = true;
@@ -892,6 +945,10 @@ el.btnRestart.addEventListener("click", restartSession);
 
 el.btnOpen.addEventListener("click", () => {
   void openMarkdownDeck();
+});
+
+el.btnNew.addEventListener("click", () => {
+  void createNewDeck();
 });
 
 el.fileInput.addEventListener("change", () => {
