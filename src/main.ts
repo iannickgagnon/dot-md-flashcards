@@ -155,7 +155,9 @@ app.innerHTML = `
           <button type="button" class="btn-outline" id="btn-missed" disabled hidden>
             <span class="btn-outline__key">M</span>ISSED IT
           </button>
-          <button type="button" class="btn-outline" id="btn-restart" hidden>RESTART</button>
+          <button type="button" class="btn-outline" id="btn-restart" hidden>
+            <span class="btn-outline__key">R</span>ESTART
+          </button>
         </div>
       </div>
     </div>
@@ -851,6 +853,11 @@ window.addEventListener("keydown", (e) => {
     if (canMarkOutcomeFromShortcut()) {
       e.preventDefault();
       markOutcome("missed");
+    }
+  } else if ((e.key === "r" || e.key === "R") && !shouldIgnoreGotMissedShortcut(e)) {
+    if (state.sessionComplete && state.cards.length > 0) {
+      e.preventDefault();
+      restartSession();
     }
   }
 });
