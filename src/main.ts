@@ -626,7 +626,9 @@ function loadDeck(text: string, label: string, fileHandle: FileSystemFileHandle 
 }
 
 async function loadTutorialDeck(): Promise<void> {
-  const response = await fetch("/tutorial-deck.md");
+  const response = await fetch(
+    `${import.meta.env.BASE_URL}tutorial-deck.md`,
+  );
   if (!response.ok) throw new Error("Could not load tutorial deck");
   const text = await response.text();
   loadDeck(text, "tutorial-deck.md", null);
