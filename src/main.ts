@@ -733,7 +733,15 @@ function markOutcome(kind: Outcome): void {
   const i = state.index;
   const prev = state.outcomes.get(i);
 
-  if (prev === kind) return;
+  if (prev === kind) {
+    state.outcomes.delete(i);
+    if (kind === "got") state.got -= 1;
+    else state.missed -= 1;
+    state.isFlipped = false;
+    syncSessionComplete();
+    render();
+    return;
+  }
 
   if (prev !== undefined) {
     if (prev === "got") state.got -= 1;
