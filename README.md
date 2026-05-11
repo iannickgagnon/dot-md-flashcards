@@ -5,11 +5,11 @@
   <p><em>Main UI with the tutorial deck loaded (see below)</em></p>
 </div>
 
-## Why another flashcard app ?
+## Another vibecoded flashcard app ... really?
 
-I created this project to use alongside my knowledge base which is mostly in Markdown format (`.md`). I wanted a simple framework that allowed me to create flashcards from my notes using an LLM and open them in a barebones UI to study them.
+I created this project to use alongside my knowledge base which is mostly in Markdown format (`.md`). I wanted a simple framework that allowed me to create flashcards from my notes using an LLM and open them in a minimal UI to study them.
 
-It's intentionally low-tech, so I will try to resist the urge of adding the features I don't need that come with other apps (statistics, card themes, etc.). You are absolutely welcome to implement them in your own copy.
+It's intentionally low-tech, so I will (try to) resist adding the features I don't need that come with other apps (statistics, card themes, etc.). You are absolutely welcome to implement them in your own copy.
 
 ## Overview
 
