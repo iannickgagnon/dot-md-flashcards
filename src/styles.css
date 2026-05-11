@@ -339,15 +339,15 @@ body {
 
 .flashcard-resize-handle {
   position: absolute;
-  right: 8px;
+  left: 8px;
   bottom: 8px;
   width: 12px;
   height: 12px;
   box-sizing: border-box;
-  border-right: 2px solid var(--text-muted);
+  border-left: 2px solid var(--text-muted);
   border-bottom: 2px solid var(--text-muted);
   opacity: 0.85;
-  cursor: se-resize;
+  cursor: sw-resize;
   touch-action: none;
   z-index: 4;
   pointer-events: auto;
