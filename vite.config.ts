@@ -1,3 +1,6 @@
 import { defineConfig } from "vite";
 
-export default defineConfig({});
+/** Project-site URL: `https://<user>.github.io/dot-md-flashcards/` */
+export default defineConfig({
+  base: "/dot-md-flashcards/",
+});
