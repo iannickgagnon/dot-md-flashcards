@@ -356,6 +356,12 @@ body {
   touch-action: none;
   z-index: 4;
   pointer-events: auto;
+  transition: opacity 0.12s ease;
+}
+
+.flashcard-resize-handle--flip-active {
+  opacity: 0 !important;
+  pointer-events: none;
 }
 
 .flashcard-resize-handle:hover {

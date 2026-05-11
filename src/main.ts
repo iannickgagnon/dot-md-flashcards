@@ -304,6 +304,42 @@ el.btnTheme.addEventListener("click", () => {
   setTheme(getTheme() === "dark" ? "light" : "dark");
 });
 
+let resizeHandleFlipHideGeneration = 0;
+
+/** Hide resize grip during 3D flip (and reduced-motion crossfade) so it doesn't sit visibly on the rotating plane. */
+function beginResizeHandleFlipHide(): void {
+  const id = ++resizeHandleFlipHideGeneration;
+  el.flashcardResizeHandle.classList.add("flashcard-resize-handle--flip-active");
+
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const fallbackMs = reduced ? 250 : 720;
+  let tid: number | undefined;
+
+  const finish = () => {
+    if (tid !== undefined) {
+      window.clearTimeout(tid);
+      tid = undefined;
+    }
+    el.flipPanel.removeEventListener("transitionend", onTransitionEnd);
+    if (id !== resizeHandleFlipHideGeneration) return;
+    el.flashcardResizeHandle.classList.remove("flashcard-resize-handle--flip-active");
+  };
+
+  const onTransitionEnd = (ev: TransitionEvent) => {
+    const target = ev.target as Node;
+    if (!el.flipPanel.contains(target)) return;
+    if (reduced) {
+      if (ev.propertyName !== "opacity") return;
+    } else if (ev.target !== el.flipPanel || ev.propertyName !== "transform") {
+      return;
+    }
+    finish();
+  };
+
+  el.flipPanel.addEventListener("transitionend", onTransitionEnd);
+  tid = window.setTimeout(finish, fallbackMs);
+}
+
 function toggleFlip(): void {
   const n = state.cards.length;
   if (n === 0) return;
@@ -813,9 +849,11 @@ function render(): void {
   renderDeckPanel();
 
   if (!hasCards) {
+    const wasBackNoCards = el.flipPanel.classList.contains("is-back");
     el.questionTitle.innerHTML = "";
     el.answer.innerHTML = "";
     el.flipPanel.classList.remove("is-back");
+    if (wasBackNoCards) beginResizeHandleFlipHide();
     el.flipCard.setAttribute("aria-pressed", "false");
     el.flipCard.setAttribute(
       "aria-label",
@@ -865,7 +903,11 @@ function render(): void {
   el.questionTitle.innerHTML = renderTitleHtml(card.title);
   el.answer.innerHTML = renderAnswerHtml(card.bodyMd);
 
-  el.flipPanel.classList.toggle("is-back", state.isFlipped);
+  const wasBack = el.flipPanel.classList.contains("is-back");
+  const nowBack = state.isFlipped;
+  el.flipPanel.classList.toggle("is-back", nowBack);
+  if (wasBack !== nowBack) beginResizeHandleFlipHide();
+
   el.flipCard.setAttribute("aria-pressed", state.isFlipped ? "true" : "false");
   el.flipCard.setAttribute(
     "aria-label",
