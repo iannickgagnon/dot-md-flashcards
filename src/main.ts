@@ -45,6 +45,8 @@ function getTheme(): "light" | "dark" {
 
 type Outcome = "got" | "missed";
 
+let editDialogMode: "edit" | "create" = "edit";
+
 type AppState = {
   cards: Flashcard[];
   deckPreamble: string | null;
@@ -104,6 +106,25 @@ app.innerHTML = `
         aria-label="Edit current flashcard"
       >
         Edit card
+      </button>
+      <button
+        type="button"
+        class="btn-secondary"
+        id="btn-add-card"
+        disabled
+        aria-controls="edit-card-dialog"
+        aria-label="Add flashcard at end of deck"
+      >
+        Add card
+      </button>
+      <button
+        type="button"
+        class="btn-secondary"
+        id="btn-delete-card"
+        disabled
+        aria-label="Delete current flashcard"
+      >
+        Delete card
       </button>
       <span class="mono-label" id="session-readout" aria-live="polite">Card 0 / 0</span>
       <span class="tally mono-label" id="tally" aria-live="polite">
@@ -201,7 +222,7 @@ app.innerHTML = `
       </div>
       <div class="edit-card-dialog__actions">
         <button type="button" class="btn-outline" id="edit-card-cancel" value="cancel">Cancel</button>
-        <button type="submit" class="btn-primary" id="edit-card-save">Save</button>
+        <button type="submit" class="btn-primary" id="edit-card-save" value="save">Save</button>
       </div>
     </form>
   </dialog>
@@ -239,6 +260,10 @@ const el = {
   editTitle: app.querySelector<HTMLInputElement>("#edit-card-title")!,
   editBody: app.querySelector<HTMLTextAreaElement>("#edit-card-body")!,
   btnEditCard: app.querySelector<HTMLButtonElement>("#btn-edit-card")!,
+  btnAddCard: app.querySelector<HTMLButtonElement>("#btn-add-card")!,
+  btnDeleteCard: app.querySelector<HTMLButtonElement>("#btn-delete-card")!,
+  editDialogTitle: app.querySelector<HTMLHeadingElement>("#edit-card-dialog-title")!,
+  btnEditSave: app.querySelector<HTMLButtonElement>("#edit-card-save")!,
   btnEditCancel: app.querySelector<HTMLButtonElement>("#edit-card-cancel")!,
 };
 
@@ -481,8 +506,15 @@ function normalizeEditTitle(raw: string): string {
   return s;
 }
 
+function canAddCard(): boolean {
+  return state.fileLabel !== null || state.cards.length > 0;
+}
+
 function openEditCardDialog(): void {
   if (state.cards.length === 0) return;
+  editDialogMode = "edit";
+  el.editDialogTitle.textContent = "Edit card";
+  el.btnEditSave.textContent = "Save";
   const card = state.cards[state.index]!;
   el.editTitle.value = card.title;
   el.editBody.value = card.bodyMd;
@@ -493,8 +525,69 @@ function openEditCardDialog(): void {
   });
 }
 
+function openAddCardDialog(): void {
+  if (!canAddCard()) return;
+  editDialogMode = "create";
+  el.editDialogTitle.textContent = "Add card";
+  el.btnEditSave.textContent = "Add card";
+  el.editTitle.value = "";
+  el.editBody.value = "";
+  el.editDialog.showModal();
+  queueMicrotask(() => {
+    el.editTitle.focus();
+  });
+}
+
 function closeEditCardDialog(): void {
   if (el.editDialog.open) el.editDialog.close();
+}
+
+function deleteCurrentCard(): void {
+  const n = state.cards.length;
+  if (n === 0) return;
+  if (!window.confirm("Delete this flashcard? This cannot be undone.")) return;
+
+  const di = state.index;
+  state.cards.splice(di, 1);
+
+  const nextOutcomes = new Map<number, Outcome>();
+  for (const [k, v] of state.outcomes) {
+    if (k < di) nextOutcomes.set(k, v);
+    else if (k > di) nextOutcomes.set(k - 1, v);
+  }
+  state.outcomes = nextOutcomes;
+
+  let got = 0;
+  let missed = 0;
+  for (const v of nextOutcomes.values()) {
+    if (v === "got") got += 1;
+    else missed += 1;
+  }
+  state.got = got;
+  state.missed = missed;
+
+  if (state.cards.length === 0) {
+    state.index = 0;
+  } else if (di >= state.cards.length) {
+    state.index = state.cards.length - 1;
+  } else {
+    state.index = di;
+  }
+  state.isFlipped = false;
+  syncSessionComplete();
+  render();
+  void (async () => {
+    try {
+      await syncDeckToDisk();
+      render();
+    } catch {
+      const nc = state.cards.length;
+      const label = state.fileLabel;
+      el.fileMeta.textContent = label
+        ? `${label} · ${nc} card${nc === 1 ? "" : "s"} — could not write file.`
+        : "Could not write file.";
+    }
+  })();
 }
 
 function deckDownloadFilename(): string {
@@ -504,6 +597,8 @@ function deckDownloadFilename(): string {
 }
 
 el.btnEditCard.addEventListener("click", () => openEditCardDialog());
+el.btnAddCard.addEventListener("click", () => openAddCardDialog());
+el.btnDeleteCard.addEventListener("click", () => deleteCurrentCard());
 
 el.editForm.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -512,10 +607,17 @@ el.editForm.addEventListener("submit", (e) => {
     el.editTitle.focus();
     return;
   }
-  const card = state.cards[state.index];
-  if (!card) return;
-  card.title = title;
-  card.bodyMd = el.editBody.value;
+  const bodyMd = el.editBody.value;
+  if (editDialogMode === "create") {
+    state.cards.push({ title, bodyMd });
+    state.index = state.cards.length - 1;
+    state.isFlipped = false;
+  } else {
+    const card = state.cards[state.index];
+    if (!card) return;
+    card.title = title;
+    card.bodyMd = bodyMd;
+  }
   closeEditCardDialog();
   render();
   void (async () => {
@@ -639,6 +741,7 @@ el.btnMissedPanelToggle.addEventListener("click", () => {
 function render(): void {
   const n = state.cards.length;
   const hasCards = n > 0;
+  const canAdd = canAddCard();
 
   el.emptyHint.hidden = hasCards;
   el.flashcardWrap.hidden = !hasCards;
@@ -676,6 +779,8 @@ function render(): void {
     el.btnPrev.disabled = true;
     el.btnNext.disabled = true;
     el.btnEditCard.disabled = true;
+    el.btnAddCard.disabled = !canAdd;
+    el.btnDeleteCard.disabled = true;
     syncFlashcardViewportHeight();
     return;
   }
@@ -688,6 +793,8 @@ function render(): void {
   el.btnMissed.hidden = false;
 
   el.btnEditCard.disabled = false;
+  el.btnAddCard.disabled = !canAdd;
+  el.btnDeleteCard.disabled = false;
 
   el.btnPrev.disabled = state.index <= 0;
   el.btnNext.disabled = state.index >= n - 1;
