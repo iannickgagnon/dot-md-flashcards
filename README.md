@@ -1,5 +1,9 @@
 # .md flashcards
 
+**To see this project in action, go to:** [https://iannickgagnon.github.io/dot-md-flashcards/](https://iannickgagnon.github.io/dot-md-flashcards/)
+
+<br>
+
 <div align="center">
   <img src="docs/images/main_with_loaded_tutorial_deck.jpg" alt="Flashcard study view" width="800" style="border: 2px solid #000;">
   <p><em>Main UI with the tutorial deck loaded (see below)</em></p>
