@@ -1,4 +1,4 @@
-# dot-md-flashcards
+# .md flashcards
 
 <div align="center">
   <img src="docs/images/main_with_loaded_tutorial_deck.jpg" alt="Flashcard study view" width="800" style="border: 2px solid #000;">
