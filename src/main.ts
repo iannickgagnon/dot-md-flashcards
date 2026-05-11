@@ -16,7 +16,8 @@ const MARKDOWN_PICKER_TYPES: Array<{ description: string; accept: Record<string,
   },
 ];
 
-const EMPTY_HINT_NO_DECK = "Drop a .md file here, use Open, New, or Tutorial.";
+const EMPTY_HINT_NO_DECK =
+  "Either drop a .md file here, or use Open, New or Tutorial in the header.";
 const EMPTY_HINT_LINKED_NO_CARDS = "This deck has no cards yet. Use Add to create one.";
 
 /** User-chosen flashcard area height for this tab session only (no localStorage). */
