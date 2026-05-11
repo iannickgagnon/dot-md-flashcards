@@ -157,7 +157,7 @@ app.innerHTML = `
     </div>
     <aside class="missed-panel" id="missed-panel" hidden>
       <div class="missed-panel__head">
-        <span class="missed-panel__title" id="missed-panel-title">Questions</span>
+        <span class="missed-panel__title" id="missed-panel-title">Flashcards</span>
         <button
           type="button"
           class="missed-panel__toggle"
@@ -561,7 +561,7 @@ function renderDeckPanel(): void {
     return;
   }
 
-  el.missedPanelTitle.textContent = `Questions (${n})`;
+  el.missedPanelTitle.textContent = `Flashcards (${n})`;
   el.missedPanel.classList.toggle("missed-panel--collapsed", state.missedPanelCollapsed);
   el.btnMissedPanelToggle.textContent = state.missedPanelCollapsed ? "Show" : "Hide";
   el.btnMissedPanelToggle.setAttribute(
