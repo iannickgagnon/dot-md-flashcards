@@ -4,35 +4,25 @@ import "@fontsource/geist-mono/latin-400.css";
 import hljsGithubDarkUrl from "highlight.js/styles/github-dark.css?url";
 import hljsGithubUrl from "highlight.js/styles/github.css?url";
 import "./styles.css";
-import { parseFlashcards, serializeDeck, type Flashcard } from "./parseFlashcards";
-import { renderAnswerHtml, renderTitleHtml } from "./renderMarkdown";
+import { editCardDialog, el, registerDomRefs, state, type DomRefs, type Outcome } from "./app/context";
+import { EMPTY_HINT_NO_DECK } from "./app/deckCopy";
+import {
+  MARKDOWN_PICKER_TYPES,
+  WindowWithFileSystemAccess,
+  writeTextToFileHandle,
+} from "./fs/markdownFileWriter";
+import { parseFlashcards, serializeDeck } from "./parseFlashcards";
+import {
+  applyFlashcardViewportHeightFromSession,
+  clampFlashcardViewportHeightForWindow,
+  getFlashcardViewportHeightPx,
+  render,
+  setFlashcardViewportHeightPx,
+} from "./study/renderStudyUi";
+
+// --- Theme & syntax highlighting -------------------------------------------------
 
 const THEME_KEY = "markdown-flashcards-theme";
-
-const MARKDOWN_PICKER_TYPES: Array<{ description: string; accept: Record<string, string[]> }> = [
-  {
-    description: "Markdown",
-    accept: { "text/markdown": [".md", ".markdown"] },
-  },
-];
-
-const EMPTY_HINT_NO_DECK =
-  "Either drop a .md file here, or use Open, New or Tutorial in the header.";
-const EMPTY_HINT_LINKED_NO_CARDS = "This deck has no cards yet. Use Add to create one.";
-
-/** User-chosen flashcard area height for this tab session only (no localStorage). */
-let flashcardViewportHeightPx: number | null = null;
-
-const FLASHCARD_VIEWPORT_MIN_PX = 220;
-
-function flashcardViewportMaxPx(): number {
-  return Math.max(FLASHCARD_VIEWPORT_MIN_PX, Math.floor(window.innerHeight * 0.92));
-}
-
-function clampFlashcardViewportHeight(h: number): number {
-  return Math.min(flashcardViewportMaxPx(), Math.max(FLASHCARD_VIEWPORT_MIN_PX, h));
-}
-
 const HLJS_THEME_LINK_ID = "hljs-syntax-theme";
 
 function syncHljsThemeLink(): void {
@@ -43,62 +33,39 @@ function syncHljsThemeLink(): void {
     link.rel = "stylesheet";
     document.head.appendChild(link);
   }
-  const t = document.documentElement.dataset.theme;
-  link.href = t === "light" ? hljsGithubUrl : hljsGithubDarkUrl;
+  const documentTheme = document.documentElement.dataset.theme;
+  link.href = documentTheme === "light" ? hljsGithubUrl : hljsGithubDarkUrl;
 }
 
 syncHljsThemeLink();
 
 function getTheme(): "light" | "dark" {
-  const t = document.documentElement.dataset.theme;
-  return t === "light" ? "light" : "dark";
+  const documentTheme = document.documentElement.dataset.theme;
+  return documentTheme === "light" ? "light" : "dark";
 }
 
-type Outcome = "got" | "missed";
-
-let editDialogMode: "edit" | "create" = "edit";
-
-type AppState = {
-  cards: Flashcard[];
-  deckPreamble: string | null;
-  /** When set, Save writes here; from showOpenFilePicker, drop, or after showSaveFilePicker. */
-  deckFileHandle: FileSystemFileHandle | null;
-  /** Same directory as the linked deck for picker `startIn` (file or dir handle per FS Access). */
-  deckFolderHint: FileSystemHandle | null;
-  index: number;
-  got: number;
-  missed: number;
-  fileLabel: string | null;
-  isFlipped: boolean;
-  outcomes: Map<number, Outcome>;
-  sessionComplete: boolean;
-  missedPanelCollapsed: boolean;
-};
-
-const state: AppState = {
-  cards: [],
-  deckPreamble: null,
-  deckFileHandle: null,
-  deckFolderHint: null,
-  index: 0,
-  got: 0,
-  missed: 0,
-  fileLabel: null,
-  isFlipped: false,
-  outcomes: new Map(),
-  sessionComplete: false,
-  missedPanelCollapsed: false,
-};
-
-function titlePlainForList(raw: string): string {
-  const s = raw.replace(/\s+/g, " ").trim();
-  return s.length > 100 ? `${s.slice(0, 97)}…` : s;
+function syncThemeButton(): void {
+  const theme = getTheme();
+  el.btnTheme.textContent = theme === "dark" ? "Light" : "Dark";
+  el.btnTheme.setAttribute(
+    "aria-label",
+    theme === "dark" ? "Switch to light theme" : "Switch to dark theme",
+  );
 }
 
-const app = document.querySelector<HTMLDivElement>("#app");
-if (!app) throw new Error("#app missing");
+function setTheme(nextTheme: "light" | "dark"): void {
+  document.documentElement.dataset.theme = nextTheme;
+  localStorage.setItem(THEME_KEY, nextTheme);
+  syncHljsThemeLink();
+  syncThemeButton();
+}
 
-app.innerHTML = `
+// --- App shell (static HTML injected once) --------------------------------------
+
+const appRoot = document.querySelector<HTMLDivElement>("#app");
+if (!appRoot) throw new Error("#app missing");
+
+appRoot.innerHTML = `
   <header class="app-header">
     <h1 class="app-title">.md flashcards</h1>
     <div class="header-tools">
@@ -244,126 +211,76 @@ app.innerHTML = `
   </dialog>
 `;
 
-const el = {
-  fileInput: app.querySelector<HTMLInputElement>("#file-input")!,
-  btnOpen: app.querySelector<HTMLButtonElement>("#btn-open")!,
-  btnNew: app.querySelector<HTMLButtonElement>("#btn-new")!,
-  btnTutorial: app.querySelector<HTMLButtonElement>("#btn-tutorial")!,
-  btnTheme: app.querySelector<HTMLButtonElement>("#btn-theme")!,
-  sessionReadout: app.querySelector<HTMLSpanElement>("#session-readout")!,
-  tallyGot: app.querySelector<HTMLSpanElement>("#tally-got")!,
-  tallyMissed: app.querySelector<HTMLSpanElement>("#tally-missed")!,
-  fileMeta: app.querySelector<HTMLParagraphElement>("#file-meta")!,
-  emptyHint: app.querySelector<HTMLParagraphElement>("#empty-hint")!,
-  flashcardWrap: app.querySelector<HTMLDivElement>("#flashcard-wrap")!,
-  flipCard: app.querySelector<HTMLDivElement>("#flashcard-flip")!,
-  flashcardViewport: app.querySelector<HTMLDivElement>("#flashcard-viewport")!,
-  flipPanel: app.querySelector<HTMLDivElement>("#flip-panel")!,
-  flashcardResizeHandle: app.querySelector<HTMLDivElement>(".flashcard-resize-handle")!,
-  questionTitle: app.querySelector<HTMLHeadingElement>("#question-title")!,
-  answer: app.querySelector<HTMLDivElement>("#answer")!,
-  btnPrev: app.querySelector<HTMLButtonElement>("#btn-prev")!,
-  btnNext: app.querySelector<HTMLButtonElement>("#btn-next")!,
-  btnGot: app.querySelector<HTMLButtonElement>("#btn-got")!,
-  btnMissed: app.querySelector<HTMLButtonElement>("#btn-missed")!,
-  btnRestart: app.querySelector<HTMLButtonElement>("#btn-restart")!,
-  dropZone: app.querySelector<HTMLDivElement>("#drop-zone")!,
-  missedPanel: app.querySelector<HTMLElement>("#missed-panel")!,
-  missedList: app.querySelector<HTMLUListElement>("#missed-list")!,
-  btnMissedPanelToggle: app.querySelector<HTMLButtonElement>("#btn-missed-panel-toggle")!,
-  missedPanelTitle: app.querySelector<HTMLSpanElement>("#missed-panel-title")!,
-  editDialog: app.querySelector<HTMLDialogElement>("#edit-card-dialog")!,
-  editForm: app.querySelector<HTMLFormElement>("#edit-card-form")!,
-  editTitle: app.querySelector<HTMLInputElement>("#edit-card-title")!,
-  editBody: app.querySelector<HTMLTextAreaElement>("#edit-card-body")!,
-  btnEditCard: app.querySelector<HTMLButtonElement>("#btn-edit-card")!,
-  btnAddCard: app.querySelector<HTMLButtonElement>("#btn-add-card")!,
-  btnDeleteCard: app.querySelector<HTMLButtonElement>("#btn-delete-card")!,
-  editDialogTitle: app.querySelector<HTMLHeadingElement>("#edit-card-dialog-title")!,
-  btnEditSave: app.querySelector<HTMLButtonElement>("#edit-card-save")!,
-  btnEditCancel: app.querySelector<HTMLButtonElement>("#edit-card-cancel")!,
-};
-
-function syncThemeButton(): void {
-  const t = getTheme();
-  el.btnTheme.textContent = t === "dark" ? "Light" : "Dark";
-  el.btnTheme.setAttribute(
-    "aria-label",
-    t === "dark" ? "Switch to light theme" : "Switch to dark theme",
-  );
-}
-
-function setTheme(theme: "light" | "dark"): void {
-  document.documentElement.dataset.theme = theme;
-  localStorage.setItem(THEME_KEY, theme);
-  syncHljsThemeLink();
-  syncThemeButton();
-}
+registerDomRefs({
+  fileInput: appRoot.querySelector<HTMLInputElement>("#file-input")!,
+  btnOpen: appRoot.querySelector<HTMLButtonElement>("#btn-open")!,
+  btnNew: appRoot.querySelector<HTMLButtonElement>("#btn-new")!,
+  btnTutorial: appRoot.querySelector<HTMLButtonElement>("#btn-tutorial")!,
+  btnTheme: appRoot.querySelector<HTMLButtonElement>("#btn-theme")!,
+  sessionReadout: appRoot.querySelector<HTMLSpanElement>("#session-readout")!,
+  tallyGot: appRoot.querySelector<HTMLSpanElement>("#tally-got")!,
+  tallyMissed: appRoot.querySelector<HTMLSpanElement>("#tally-missed")!,
+  fileMeta: appRoot.querySelector<HTMLParagraphElement>("#file-meta")!,
+  emptyHint: appRoot.querySelector<HTMLParagraphElement>("#empty-hint")!,
+  flashcardWrap: appRoot.querySelector<HTMLDivElement>("#flashcard-wrap")!,
+  flipCard: appRoot.querySelector<HTMLDivElement>("#flashcard-flip")!,
+  flashcardViewport: appRoot.querySelector<HTMLDivElement>("#flashcard-viewport")!,
+  flipPanel: appRoot.querySelector<HTMLDivElement>("#flip-panel")!,
+  flashcardResizeHandle: appRoot.querySelector<HTMLDivElement>(".flashcard-resize-handle")!,
+  questionTitle: appRoot.querySelector<HTMLHeadingElement>("#question-title")!,
+  answer: appRoot.querySelector<HTMLDivElement>("#answer")!,
+  btnPrev: appRoot.querySelector<HTMLButtonElement>("#btn-prev")!,
+  btnNext: appRoot.querySelector<HTMLButtonElement>("#btn-next")!,
+  btnGot: appRoot.querySelector<HTMLButtonElement>("#btn-got")!,
+  btnMissed: appRoot.querySelector<HTMLButtonElement>("#btn-missed")!,
+  btnRestart: appRoot.querySelector<HTMLButtonElement>("#btn-restart")!,
+  dropZone: appRoot.querySelector<HTMLDivElement>("#drop-zone")!,
+  missedPanel: appRoot.querySelector<HTMLElement>("#missed-panel")!,
+  missedList: appRoot.querySelector<HTMLUListElement>("#missed-list")!,
+  btnMissedPanelToggle: appRoot.querySelector<HTMLButtonElement>("#btn-missed-panel-toggle")!,
+  missedPanelTitle: appRoot.querySelector<HTMLSpanElement>("#missed-panel-title")!,
+  editDialog: appRoot.querySelector<HTMLDialogElement>("#edit-card-dialog")!,
+  editForm: appRoot.querySelector<HTMLFormElement>("#edit-card-form")!,
+  editTitle: appRoot.querySelector<HTMLInputElement>("#edit-card-title")!,
+  editBody: appRoot.querySelector<HTMLTextAreaElement>("#edit-card-body")!,
+  btnEditCard: appRoot.querySelector<HTMLButtonElement>("#btn-edit-card")!,
+  btnAddCard: appRoot.querySelector<HTMLButtonElement>("#btn-add-card")!,
+  btnDeleteCard: appRoot.querySelector<HTMLButtonElement>("#btn-delete-card")!,
+  editDialogTitle: appRoot.querySelector<HTMLHeadingElement>("#edit-card-dialog-title")!,
+  btnEditSave: appRoot.querySelector<HTMLButtonElement>("#edit-card-save")!,
+  btnEditCancel: appRoot.querySelector<HTMLButtonElement>("#edit-card-cancel")!,
+} satisfies DomRefs);
 
 el.btnTheme.addEventListener("click", () => {
   setTheme(getTheme() === "dark" ? "light" : "dark");
 });
 
-let resizeHandleFlipHideGeneration = 0;
-
-/** Hide resize grip during 3D flip (and reduced-motion crossfade) so it doesn't sit visibly on the rotating plane. */
-function beginResizeHandleFlipHide(): void {
-  const id = ++resizeHandleFlipHideGeneration;
-  el.flashcardResizeHandle.classList.add("flashcard-resize-handle--flip-active");
-
-  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const fallbackMs = reduced ? 250 : 720;
-  let tid: number | undefined;
-
-  const finish = () => {
-    if (tid !== undefined) {
-      window.clearTimeout(tid);
-      tid = undefined;
-    }
-    el.flipPanel.removeEventListener("transitionend", onTransitionEnd);
-    if (id !== resizeHandleFlipHideGeneration) return;
-    el.flashcardResizeHandle.classList.remove("flashcard-resize-handle--flip-active");
-  };
-
-  const onTransitionEnd = (ev: TransitionEvent) => {
-    const target = ev.target as Node;
-    if (!el.flipPanel.contains(target)) return;
-    if (reduced) {
-      if (ev.propertyName !== "opacity") return;
-    } else if (ev.target !== el.flipPanel || ev.propertyName !== "transform") {
-      return;
-    }
-    finish();
-  };
-
-  el.flipPanel.addEventListener("transitionend", onTransitionEnd);
-  tid = window.setTimeout(finish, fallbackMs);
-}
+// --- Study interactions: flip, resize, context menu -------------------------------
 
 function toggleFlip(): void {
-  const n = state.cards.length;
-  if (n === 0) return;
+  const cardCount = state.cards.length;
+  if (cardCount === 0) return;
   state.isFlipped = !state.isFlipped;
   render();
 }
 
-function flashcardFlipClick(e: MouseEvent): void {
-  const t = e.target as Element;
-  if (t.closest(".flashcard-resize-handle") || t.closest("a") || t.closest("button")) return;
+function flashcardFlipClick(event: MouseEvent): void {
+  const target = event.target as Element;
+  if (target.closest(".flashcard-resize-handle") || target.closest("a") || target.closest("button")) return;
   toggleFlip();
 }
 
-function flashcardFlipKeydown(e: KeyboardEvent): void {
-  if ((e.key === "e" || e.key === "E") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+function flashcardFlipKeydown(event: KeyboardEvent): void {
+  if ((event.key === "e" || event.key === "E") && !event.ctrlKey && !event.metaKey && !event.altKey) {
     if (state.cards.length === 0) return;
-    e.preventDefault();
+    event.preventDefault();
     openEditCardDialog();
     return;
   }
-  if (e.key !== "Enter" && e.key !== " ") return;
-  const t = e.target as Element;
-  if (t.closest("a")) return;
-  e.preventDefault();
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const target = event.target as Element;
+  if (target.closest("a")) return;
+  event.preventDefault();
   toggleFlip();
 }
 
@@ -371,145 +288,111 @@ el.flipCard.addEventListener("click", flashcardFlipClick);
 el.flipCard.addEventListener("keydown", flashcardFlipKeydown);
 
 let resizeDragStartY = 0;
-let resizeDragStartH = 0;
+let resizeDragStartHeightPx = 0;
 
-function syncFlashcardViewportHeight(): void {
-  const vp = el.flashcardViewport;
-  if (flashcardViewportHeightPx === null) {
-    vp.style.removeProperty("height");
-  } else {
-    flashcardViewportHeightPx = clampFlashcardViewportHeight(flashcardViewportHeightPx);
-    vp.style.height = `${flashcardViewportHeightPx}px`;
+function endFlashcardResizePointer(event: PointerEvent): void {
+  if (el.flashcardResizeHandle.hasPointerCapture(event.pointerId)) {
+    el.flashcardResizeHandle.releasePointerCapture(event.pointerId);
+  }
+  if (getFlashcardViewportHeightPx() !== null) {
+    setFlashcardViewportHeightPx(
+      clampFlashcardViewportHeightForWindow(getFlashcardViewportHeightPx()!),
+    );
+    applyFlashcardViewportHeightFromSession();
   }
 }
 
-function endFlashcardResizePointer(e: PointerEvent): void {
-  if (el.flashcardResizeHandle.hasPointerCapture(e.pointerId)) {
-    el.flashcardResizeHandle.releasePointerCapture(e.pointerId);
-  }
-  if (flashcardViewportHeightPx !== null) {
-    flashcardViewportHeightPx = clampFlashcardViewportHeight(flashcardViewportHeightPx);
-    syncFlashcardViewportHeight();
-  }
-}
-
-el.flashcardResizeHandle.addEventListener("pointerdown", (e) => {
-  if (e.button !== 0) return;
-  e.preventDefault();
-  e.stopPropagation();
+el.flashcardResizeHandle.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  event.stopPropagation();
   const rect = el.flashcardViewport.getBoundingClientRect();
-  resizeDragStartY = e.clientY;
-  resizeDragStartH = flashcardViewportHeightPx ?? rect.height;
-  el.flashcardResizeHandle.setPointerCapture(e.pointerId);
+  resizeDragStartY = event.clientY;
+  resizeDragStartHeightPx = getFlashcardViewportHeightPx() ?? rect.height;
+  el.flashcardResizeHandle.setPointerCapture(event.pointerId);
 });
 
-el.flashcardResizeHandle.addEventListener("pointermove", (e) => {
-  if (!el.flashcardResizeHandle.hasPointerCapture(e.pointerId)) return;
-  const dy = e.clientY - resizeDragStartY;
-  flashcardViewportHeightPx = clampFlashcardViewportHeight(resizeDragStartH + dy);
-  syncFlashcardViewportHeight();
+el.flashcardResizeHandle.addEventListener("pointermove", (event) => {
+  if (!el.flashcardResizeHandle.hasPointerCapture(event.pointerId)) return;
+  const deltaY = event.clientY - resizeDragStartY;
+  setFlashcardViewportHeightPx(
+    clampFlashcardViewportHeightForWindow(resizeDragStartHeightPx + deltaY),
+  );
+  applyFlashcardViewportHeightFromSession();
 });
 
 el.flashcardResizeHandle.addEventListener("pointerup", endFlashcardResizePointer);
 el.flashcardResizeHandle.addEventListener("pointercancel", endFlashcardResizePointer);
 
 window.addEventListener("resize", () => {
-  if (flashcardViewportHeightPx === null) return;
-  flashcardViewportHeightPx = clampFlashcardViewportHeight(flashcardViewportHeightPx);
-  syncFlashcardViewportHeight();
+  if (getFlashcardViewportHeightPx() === null) return;
+  setFlashcardViewportHeightPx(
+    clampFlashcardViewportHeightForWindow(getFlashcardViewportHeightPx()!),
+  );
+  applyFlashcardViewportHeightFromSession();
 });
 
-el.flipCard.addEventListener("contextmenu", (e) => {
-  const t = e.target as Element;
-  if (t.closest(".flashcard-resize-handle") || t.closest("a") || t.closest("button")) return;
+el.flipCard.addEventListener("contextmenu", (event) => {
+  const target = event.target as Element;
+  if (target.closest(".flashcard-resize-handle") || target.closest("a") || target.closest("button")) return;
   if (state.cards.length === 0) return;
-  e.preventDefault();
+  event.preventDefault();
   openEditCardDialog();
 });
 
-type MarkdownFileWritable = {
-  write(chunk: Blob): Promise<void>;
-  close(): Promise<void>;
-};
+// --- Deck persistence (FS Access, serialization) ---------------------------------
 
-/** Chromium file handle with write APIs (DOM `lib` typings are incomplete). */
-type MarkdownFileHandle = FileSystemFileHandle & {
-  queryPermission(descriptor: { mode: "readwrite" }): Promise<PermissionState>;
-  requestPermission(descriptor: { mode: "readwrite" }): Promise<PermissionState>;
-  createWritable(): Promise<MarkdownFileWritable>;
-};
-
-type WindowWithFileSystemAccess = Window & {
-  showOpenFilePicker?: (options: {
-    types: Array<{ description: string; accept: Record<string, string[]> }>;
-    multiple: boolean;
-    startIn?: FileSystemHandle;
-  }) => Promise<FileSystemFileHandle[]>;
-  showSaveFilePicker?: (options: {
-    suggestedName: string;
-    types: Array<{ description: string; accept: Record<string, string[]> }>;
-    startIn?: FileSystemHandle;
-  }) => Promise<FileSystemFileHandle>;
-};
-
-async function writeTextToFileHandle(handle: FileSystemFileHandle, text: string): Promise<void> {
-  const h = handle as MarkdownFileHandle;
-  const perm = { mode: "readwrite" as const };
-  if ((await h.queryPermission(perm)) !== "granted") {
-    if ((await h.requestPermission(perm)) !== "granted") {
-      throw new DOMException("Write permission denied", "NotAllowedError");
-    }
-  }
-  const writable = await h.createWritable();
-  try {
-    await writable.write(new Blob([text], { type: "text/markdown;charset=utf-8" }));
-  } finally {
-    await writable.close();
-  }
+function deckDownloadFilename(): string {
+  const label = state.fileLabel;
+  if (label && /\.(md|markdown)$/i.test(label)) return label;
+  return "edited-deck.md";
 }
 
-/** Writes serialized deck to linked file, or prompts with save picker (`startIn` from `deckFolderHint` when known). */
+/**
+ * Writes the in-memory deck to the linked handle when possible; otherwise opens a save picker.
+ * AbortError: user canceled picker — surface in `fileMeta` instead of throwing so the session stays usable.
+ */
 async function syncDeckToDisk(): Promise<void> {
   const win = window as WindowWithFileSystemAccess;
-  const md = serializeDeck(state.deckPreamble, state.cards);
+  const markdown = serializeDeck(state.deckPreamble, state.cards);
 
   async function pickSaveAndWrite(): Promise<void> {
     if (!win.showSaveFilePicker) {
-      const n = state.cards.length;
+      const cardCount = state.cards.length;
       const label = state.fileLabel;
       if (label) {
-        el.fileMeta.textContent = `${label} · ${n} card${n === 1 ? "" : "s"} — this browser cannot write the file; changes stay in this tab only.`;
+        el.fileMeta.textContent = `${label} · ${cardCount} card${cardCount === 1 ? "" : "s"} — this browser cannot write the file; changes stay in this tab only.`;
       }
       return;
     }
     const startIn = state.deckFolderHint ?? state.deckFileHandle ?? undefined;
-    let handle: FileSystemFileHandle;
+    let fileHandle: FileSystemFileHandle;
     try {
-      handle = await win.showSaveFilePicker({
+      fileHandle = await win.showSaveFilePicker({
         suggestedName: deckDownloadFilename(),
         types: MARKDOWN_PICKER_TYPES,
         ...(startIn ? { startIn } : {}),
       });
-    } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") {
-        const n = state.cards.length;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        const cardCount = state.cards.length;
         const label = state.fileLabel;
         el.fileMeta.textContent = label
-          ? `${label} · ${n} card${n === 1 ? "" : "s"} — save to file was canceled; changes are only in this tab.`
+          ? `${label} · ${cardCount} card${cardCount === 1 ? "" : "s"} — save to file was canceled; changes are only in this tab.`
           : "";
         return;
       }
-      throw e;
+      throw error;
     }
-    state.deckFileHandle = handle;
-    state.deckFolderHint = handle;
-    state.fileLabel = handle.name;
-    await writeTextToFileHandle(handle, md);
+    state.deckFileHandle = fileHandle;
+    state.deckFolderHint = fileHandle;
+    state.fileLabel = fileHandle.name;
+    await writeTextToFileHandle(fileHandle, markdown);
   }
 
   if (state.deckFileHandle) {
     try {
-      await writeTextToFileHandle(state.deckFileHandle, md);
+      await writeTextToFileHandle(state.deckFileHandle, markdown);
       return;
     } catch {
       await pickSaveAndWrite();
@@ -520,6 +403,10 @@ async function syncDeckToDisk(): Promise<void> {
   await pickSaveAndWrite();
 }
 
+/**
+ * Save-picker-first empty deck: do not mutate `state` until the initial write succeeds so we never
+ * show a linked filename without a real file on disk.
+ */
 async function createNewDeck(): Promise<void> {
   const win = window as WindowWithFileSystemAccess;
   if (!win.showSaveFilePicker) {
@@ -528,30 +415,30 @@ async function createNewDeck(): Promise<void> {
     return;
   }
   const startIn = state.deckFolderHint ?? state.deckFileHandle ?? undefined;
-  let handle: FileSystemFileHandle;
+  let fileHandle: FileSystemFileHandle;
   try {
-    handle = await win.showSaveFilePicker({
+    fileHandle = await win.showSaveFilePicker({
       suggestedName: "new-deck.md",
       types: MARKDOWN_PICKER_TYPES,
       ...(startIn ? { startIn } : {}),
     });
-  } catch (e) {
-    if (e instanceof DOMException && e.name === "AbortError") return;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
     el.fileMeta.textContent = "Could not create new deck.";
     return;
   }
-  const md = serializeDeck(null, []);
+  const markdown = serializeDeck(null, []);
   try {
-    await writeTextToFileHandle(handle, md);
+    await writeTextToFileHandle(fileHandle, markdown);
   } catch {
     el.fileMeta.textContent = "Could not write new deck file.";
     return;
   }
   state.cards = [];
   state.deckPreamble = null;
-  state.deckFileHandle = handle;
-  state.deckFolderHint = handle;
-  state.fileLabel = handle.name;
+  state.deckFileHandle = fileHandle;
+  state.deckFolderHint = fileHandle;
+  state.fileLabel = fileHandle.name;
   state.index = 0;
   state.got = 0;
   state.missed = 0;
@@ -567,40 +454,39 @@ async function openMarkdownDeck(): Promise<void> {
   if (win.showOpenFilePicker) {
     try {
       const startIn = state.deckFolderHint ?? state.deckFileHandle ?? undefined;
-      const [handle] = await win.showOpenFilePicker({
-        types: [
-          {
-            description: "Markdown",
-            accept: { "text/markdown": [".md", ".markdown"] },
-          },
-        ],
+      const [fileHandle] = await win.showOpenFilePicker({
+        types: MARKDOWN_PICKER_TYPES,
         multiple: false,
         ...(startIn ? { startIn } : {}),
       });
-      const file = await handle.getFile();
+      const file = await fileHandle.getFile();
       const text = await file.text();
-      loadDeck(text, file.name, handle);
+      loadDeck(text, file.name, fileHandle);
       return;
-    } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") return;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
     }
   }
   el.fileInput.click();
 }
 
+/** Strip accidental heading markers so authors can paste `## Title` into the dialog safely. */
 function normalizeEditTitle(raw: string): string {
-  let s = raw.replace(/\s+/g, " ").trim();
-  s = s.replace(/^#{1,6}\s*/, "");
-  return s;
+  let normalized = raw.replace(/\s+/g, " ").trim();
+  normalized = normalized.replace(/^#{1,6}\s*/, "");
+  return normalized;
 }
 
+/**
+ * True when a linked deck has no cards but we still want Add enabled (preamble-only or new-deck flow).
+ */
 function canAddCard(): boolean {
   return state.fileLabel !== null || state.cards.length > 0;
 }
 
 function openEditCardDialog(): void {
   if (state.cards.length === 0) return;
-  editDialogMode = "edit";
+  editCardDialog.mode = "edit";
   el.editDialogTitle.textContent = "Edit card";
   el.btnEditSave.textContent = "Save";
   const card = state.cards[state.index]!;
@@ -615,7 +501,7 @@ function openEditCardDialog(): void {
 
 function openAddCardDialog(): void {
   if (!canAddCard()) return;
-  editDialogMode = "create";
+  editCardDialog.mode = "create";
   el.editDialogTitle.textContent = "Add card";
   el.btnEditSave.textContent = "Add card";
   el.editTitle.value = "";
@@ -630,25 +516,29 @@ function closeEditCardDialog(): void {
   if (el.editDialog.open) el.editDialog.close();
 }
 
+/**
+ * Removes the current card and rebuilds `outcomes` so list indices stay aligned with `state.cards`
+ * (keys above the deleted index shift down by one).
+ */
 function deleteCurrentCard(): void {
-  const n = state.cards.length;
-  if (n === 0) return;
+  const cardCount = state.cards.length;
+  if (cardCount === 0) return;
   if (!window.confirm("Delete this flashcard? This cannot be undone.")) return;
 
-  const di = state.index;
-  state.cards.splice(di, 1);
+  const deletedIndex = state.index;
+  state.cards.splice(deletedIndex, 1);
 
   const nextOutcomes = new Map<number, Outcome>();
-  for (const [k, v] of state.outcomes) {
-    if (k < di) nextOutcomes.set(k, v);
-    else if (k > di) nextOutcomes.set(k - 1, v);
+  for (const [index, outcome] of state.outcomes) {
+    if (index < deletedIndex) nextOutcomes.set(index, outcome);
+    else if (index > deletedIndex) nextOutcomes.set(index - 1, outcome);
   }
   state.outcomes = nextOutcomes;
 
   let got = 0;
   let missed = 0;
-  for (const v of nextOutcomes.values()) {
-    if (v === "got") got += 1;
+  for (const outcome of nextOutcomes.values()) {
+    if (outcome === "got") got += 1;
     else missed += 1;
   }
   state.got = got;
@@ -656,10 +546,10 @@ function deleteCurrentCard(): void {
 
   if (state.cards.length === 0) {
     state.index = 0;
-  } else if (di >= state.cards.length) {
+  } else if (deletedIndex >= state.cards.length) {
     state.index = state.cards.length - 1;
   } else {
-    state.index = di;
+    state.index = deletedIndex;
   }
   state.isFlipped = false;
   syncSessionComplete();
@@ -669,34 +559,28 @@ function deleteCurrentCard(): void {
       await syncDeckToDisk();
       render();
     } catch {
-      const nc = state.cards.length;
+      const remaining = state.cards.length;
       const label = state.fileLabel;
       el.fileMeta.textContent = label
-        ? `${label} · ${nc} card${nc === 1 ? "" : "s"} — could not write file.`
+        ? `${label} · ${remaining} card${remaining === 1 ? "" : "s"} — could not write file.`
         : "Could not write file.";
     }
   })();
-}
-
-function deckDownloadFilename(): string {
-  const label = state.fileLabel;
-  if (label && /\.(md|markdown)$/i.test(label)) return label;
-  return "edited-deck.md";
 }
 
 el.btnEditCard.addEventListener("click", () => openEditCardDialog());
 el.btnAddCard.addEventListener("click", () => openAddCardDialog());
 el.btnDeleteCard.addEventListener("click", () => deleteCurrentCard());
 
-el.editForm.addEventListener("submit", (e) => {
-  e.preventDefault();
+el.editForm.addEventListener("submit", (event) => {
+  event.preventDefault();
   const title = normalizeEditTitle(el.editTitle.value);
   if (!title) {
     el.editTitle.focus();
     return;
   }
   const bodyMd = el.editBody.value;
-  if (editDialogMode === "create") {
+  if (editCardDialog.mode === "create") {
     state.cards.push({ title, bodyMd });
     state.index = state.cards.length - 1;
     state.isFlipped = false;
@@ -713,10 +597,10 @@ el.editForm.addEventListener("submit", (e) => {
       await syncDeckToDisk();
       render();
     } catch {
-      const n = state.cards.length;
+      const cardCount = state.cards.length;
       const label = state.fileLabel;
       el.fileMeta.textContent = label
-        ? `${label} · ${n} card${n === 1 ? "" : "s"} — could not write file.`
+        ? `${label} · ${cardCount} card${cardCount === 1 ? "" : "s"} — could not write file.`
         : "Could not write file.";
     }
   })();
@@ -742,206 +626,41 @@ function loadDeck(text: string, label: string, fileHandle: FileSystemFileHandle 
 }
 
 async function loadTutorialDeck(): Promise<void> {
-  const res = await fetch("/tutorial-deck.md");
-  if (!res.ok) throw new Error("Could not load tutorial deck");
-  const text = await res.text();
+  const response = await fetch("/tutorial-deck.md");
+  if (!response.ok) throw new Error("Could not load tutorial deck");
+  const text = await response.text();
   loadDeck(text, "tutorial-deck.md", null);
 }
 
-function renderDeckPanel(): void {
-  const n = state.cards.length;
-  el.missedPanel.hidden = n === 0;
-
-  if (n === 0) {
-    el.missedList.innerHTML = "";
-    return;
-  }
-
-  el.missedPanelTitle.textContent = `Flashcards (${n})`;
-  el.missedPanel.classList.toggle("missed-panel--collapsed", state.missedPanelCollapsed);
-  el.btnMissedPanelToggle.textContent = state.missedPanelCollapsed ? "Show" : "Hide";
-  el.btnMissedPanelToggle.setAttribute(
-    "aria-expanded",
-    state.missedPanelCollapsed ? "false" : "true",
-  );
-
-  el.missedList.innerHTML = "";
-  for (let i = 0; i < n; i++) {
-    const card = state.cards[i]!;
-    const li = document.createElement("li");
-    li.className = "missed-panel__li";
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "missed-panel__item";
-    if (i === state.index) {
-      btn.classList.add("missed-panel__item--active");
-      btn.setAttribute("aria-current", "true");
-    }
-    btn.dataset.index = String(i);
-    const plain = titlePlainForList(card.title);
-    btn.setAttribute("aria-label", `Go to card ${i + 1}: ${plain}`);
-
-    const status = document.createElement("span");
-    status.className = "missed-panel__status";
-    const outcome = state.outcomes.get(i);
-    if (outcome === "got") {
-      status.classList.add("missed-panel__status--got");
-      const icon = document.createElement("span");
-      icon.className = "missed-panel__status-icon";
-      icon.setAttribute("aria-hidden", "true");
-      icon.textContent = "✓";
-      status.appendChild(icon);
-    } else if (outcome === "missed") {
-      status.classList.add("missed-panel__status--missed");
-      const icon = document.createElement("span");
-      icon.className = "missed-panel__status-icon";
-      icon.setAttribute("aria-hidden", "true");
-      icon.textContent = "✗";
-      status.appendChild(icon);
-    }
-
-    const label = document.createElement("span");
-    label.className = "missed-panel__label";
-    label.textContent = plain;
-
-    btn.appendChild(status);
-    btn.appendChild(label);
-    li.appendChild(btn);
-    el.missedList.appendChild(li);
-  }
-}
-
-el.missedList.addEventListener("click", (e) => {
-  const target = (e.target as HTMLElement).closest("button[data-index]");
-  if (!target || !(target instanceof HTMLButtonElement)) return;
-  const i = parseInt(target.dataset.index ?? "", 10);
-  if (Number.isNaN(i) || i < 0 || i >= state.cards.length) return;
-  state.index = i;
-  state.isFlipped = false;
-  render();
-});
-
-el.btnMissedPanelToggle.addEventListener("click", () => {
-  state.missedPanelCollapsed = !state.missedPanelCollapsed;
-  render();
-});
-
-function render(): void {
-  const n = state.cards.length;
-  const hasCards = n > 0;
-  const canAdd = canAddCard();
-
-  el.emptyHint.hidden = hasCards;
-  el.flashcardWrap.hidden = !hasCards;
-  el.emptyHint.textContent =
-    !hasCards && state.fileLabel !== null ? EMPTY_HINT_LINKED_NO_CARDS : EMPTY_HINT_NO_DECK;
-
-  el.fileMeta.textContent = state.fileLabel
-    ? `${state.fileLabel} · ${n} card${n === 1 ? "" : "s"}`
-    : "";
-
-  el.sessionReadout.textContent = hasCards ? `Card ${state.index + 1} / ${n}` : "Card 0 / 0";
-  el.tallyGot.textContent = String(state.got);
-  el.tallyMissed.textContent = String(state.missed);
-
-  el.btnRestart.hidden = !state.sessionComplete;
-
-  renderDeckPanel();
-
-  if (!hasCards) {
-    const wasBackNoCards = el.flipPanel.classList.contains("is-back");
-    el.questionTitle.innerHTML = "";
-    el.answer.innerHTML = "";
-    el.flipPanel.classList.remove("is-back");
-    if (wasBackNoCards) beginResizeHandleFlipHide();
-    el.flipCard.setAttribute("aria-pressed", "false");
-    el.flipCard.setAttribute(
-      "aria-label",
-      state.fileLabel
-        ? "No flashcards in this deck yet. Use Add to create a card."
-        : "No cards loaded. Open a markdown deck to study.",
-    );
-    el.flipCard.setAttribute("tabindex", "-1");
-    el.btnGot.disabled = true;
-    el.btnMissed.disabled = true;
-    el.btnGot.hidden = true;
-    el.btnMissed.hidden = true;
-    el.btnGot.classList.remove("btn-primary");
-    el.btnGot.classList.add("btn-outline");
-    el.btnMissed.classList.remove("btn-primary");
-    el.btnMissed.classList.add("btn-outline");
-    el.btnPrev.disabled = true;
-    el.btnNext.disabled = true;
-    el.btnEditCard.disabled = true;
-    el.btnAddCard.disabled = !canAdd;
-    el.btnDeleteCard.disabled = true;
-    syncFlashcardViewportHeight();
-    return;
-  }
-
-  el.flipCard.setAttribute("tabindex", "0");
-
-  el.btnGot.disabled = false;
-  el.btnMissed.disabled = false;
-  el.btnGot.hidden = false;
-  el.btnMissed.hidden = false;
-
-  el.btnEditCard.disabled = false;
-  el.btnAddCard.disabled = !canAdd;
-  el.btnDeleteCard.disabled = false;
-
-  el.btnPrev.disabled = state.index <= 0;
-  el.btnNext.disabled = state.index >= n - 1;
-
-  const outcomeForCard = state.outcomes.get(state.index);
-  el.btnGot.classList.toggle("btn-primary", outcomeForCard === "got");
-  el.btnGot.classList.toggle("btn-outline", outcomeForCard !== "got");
-  el.btnMissed.classList.toggle("btn-primary", outcomeForCard === "missed");
-  el.btnMissed.classList.toggle("btn-outline", outcomeForCard !== "missed");
-
-  const card = state.cards[state.index]!;
-  el.questionTitle.innerHTML = renderTitleHtml(card.title);
-  el.answer.innerHTML = renderAnswerHtml(card.bodyMd);
-
-  const wasBack = el.flipPanel.classList.contains("is-back");
-  const nowBack = state.isFlipped;
-  el.flipPanel.classList.toggle("is-back", nowBack);
-  if (wasBack !== nowBack) beginResizeHandleFlipHide();
-
-  el.flipCard.setAttribute("aria-pressed", state.isFlipped ? "true" : "false");
-  el.flipCard.setAttribute(
-    "aria-label",
-    state.isFlipped
-      ? "Showing answer. Click or press Enter to show the question. Press E to edit this card."
-      : "Showing question. Click or press Enter to reveal the answer. Press E to edit this card.",
-  );
-
-  syncFlashcardViewportHeight();
-}
+// --- Navigation, outcomes, session reset ------------------------------------------
 
 function go(delta: number): void {
-  const n = state.cards.length;
-  if (n === 0) return;
-  const next = state.index + delta;
-  if (next < 0 || next >= n) return;
-  state.index = next;
+  const cardCount = state.cards.length;
+  if (cardCount === 0) return;
+  const nextIndex = state.index + delta;
+  if (nextIndex < 0 || nextIndex >= cardCount) return;
+  state.index = nextIndex;
   state.isFlipped = false;
   render();
 }
 
 function syncSessionComplete(): void {
-  const n = state.cards.length;
-  state.sessionComplete = n > 0 && state.outcomes.size === n;
+  const cardCount = state.cards.length;
+  state.sessionComplete = cardCount > 0 && state.outcomes.size === cardCount;
 }
 
+/**
+ * GOT/MISSED: first mark on a card usually advances; clicking the same control again clears the mark.
+ * Tally counts stay consistent when switching between got and missed on the same card.
+ */
 function markOutcome(kind: Outcome): void {
-  const n = state.cards.length;
-  if (n === 0) return;
-  const i = state.index;
-  const prev = state.outcomes.get(i);
+  const cardCount = state.cards.length;
+  if (cardCount === 0) return;
+  const currentCardIndex = state.index;
+  const previousOutcome = state.outcomes.get(currentCardIndex);
 
-  if (prev === kind) {
-    state.outcomes.delete(i);
+  if (previousOutcome === kind) {
+    state.outcomes.delete(currentCardIndex);
     if (kind === "got") state.got -= 1;
     else state.missed -= 1;
     state.isFlipped = false;
@@ -950,23 +669,23 @@ function markOutcome(kind: Outcome): void {
     return;
   }
 
-  if (prev !== undefined) {
-    if (prev === "got") state.got -= 1;
+  if (previousOutcome !== undefined) {
+    if (previousOutcome === "got") state.got -= 1;
     else state.missed -= 1;
     if (kind === "got") state.got += 1;
     else state.missed += 1;
-    state.outcomes.set(i, kind);
+    state.outcomes.set(currentCardIndex, kind);
     state.isFlipped = false;
     syncSessionComplete();
     render();
     return;
   }
 
-  state.outcomes.set(i, kind);
+  state.outcomes.set(currentCardIndex, kind);
   if (kind === "got") state.got += 1;
   else state.missed += 1;
-  if (i < n - 1) {
-    state.index = i + 1;
+  if (currentCardIndex < cardCount - 1) {
+    state.index = currentCardIndex + 1;
   }
   state.isFlipped = false;
   syncSessionComplete();
@@ -983,6 +702,25 @@ function restartSession(): void {
   state.missedPanelCollapsed = false;
   render();
 }
+
+// --- Sidebar list wiring ----------------------------------------------------------
+
+el.missedList.addEventListener("click", (event) => {
+  const target = (event.target as HTMLElement).closest("button[data-index]");
+  if (!target || !(target instanceof HTMLButtonElement)) return;
+  const listIndex = parseInt(target.dataset.index ?? "", 10);
+  if (Number.isNaN(listIndex) || listIndex < 0 || listIndex >= state.cards.length) return;
+  state.index = listIndex;
+  state.isFlipped = false;
+  render();
+});
+
+el.btnMissedPanelToggle.addEventListener("click", () => {
+  state.missedPanelCollapsed = !state.missedPanelCollapsed;
+  render();
+});
+
+// --- Header & file input ----------------------------------------------------------
 
 el.btnRestart.addEventListener("click", restartSession);
 
@@ -1012,26 +750,29 @@ el.btnTutorial.addEventListener("click", () => {
   });
 });
 
-el.btnPrev.addEventListener("click", (e) => {
-  e.stopPropagation();
+// stopPropagation: nav chevrons sit inside the article; without it, click would bubble to the flip control.
+el.btnPrev.addEventListener("click", (event) => {
+  event.stopPropagation();
   go(-1);
 });
-el.btnNext.addEventListener("click", (e) => {
-  e.stopPropagation();
+el.btnNext.addEventListener("click", (event) => {
+  event.stopPropagation();
   go(1);
 });
 
 el.btnGot.addEventListener("click", () => markOutcome("got"));
 el.btnMissed.addEventListener("click", () => markOutcome("missed"));
 
-function shouldIgnoreGotMissedShortcut(e: KeyboardEvent): boolean {
-  if (e.ctrlKey || e.metaKey || e.altKey) return true;
+// --- Global shortcuts -------------------------------------------------------------
+
+function shouldIgnoreGotMissedShortcut(event: KeyboardEvent): boolean {
+  if (event.ctrlKey || event.metaKey || event.altKey) return true;
   if (el.editDialog.open) return true;
-  const a = document.activeElement;
-  if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement || a instanceof HTMLSelectElement) {
+  const active = document.activeElement;
+  if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement) {
     return true;
   }
-  if (a instanceof HTMLElement && a.isContentEditable) return true;
+  if (active instanceof HTMLElement && active.isContentEditable) return true;
   return false;
 }
 
@@ -1041,39 +782,42 @@ function canMarkOutcomeFromShortcut(): boolean {
   );
 }
 
-window.addEventListener("keydown", (e) => {
-  if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+window.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
     if (state.cards.length > 0 && state.index > 0) {
-      e.preventDefault();
+      event.preventDefault();
       go(-1);
     }
-  } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-    const n = state.cards.length;
-    if (n > 0 && state.index < n - 1) {
-      e.preventDefault();
+  } else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+    const cardCount = state.cards.length;
+    if (cardCount > 0 && state.index < cardCount - 1) {
+      event.preventDefault();
       go(1);
     }
-  } else if ((e.key === "g" || e.key === "G") && !shouldIgnoreGotMissedShortcut(e)) {
+  } else if ((event.key === "g" || event.key === "G") && !shouldIgnoreGotMissedShortcut(event)) {
     if (canMarkOutcomeFromShortcut()) {
-      e.preventDefault();
+      event.preventDefault();
       markOutcome("got");
     }
-  } else if ((e.key === "m" || e.key === "M") && !shouldIgnoreGotMissedShortcut(e)) {
+  } else if ((event.key === "m" || event.key === "M") && !shouldIgnoreGotMissedShortcut(event)) {
     if (canMarkOutcomeFromShortcut()) {
-      e.preventDefault();
+      event.preventDefault();
       markOutcome("missed");
     }
-  } else if ((e.key === "r" || e.key === "R") && !shouldIgnoreGotMissedShortcut(e)) {
+  } else if ((event.key === "r" || event.key === "R") && !shouldIgnoreGotMissedShortcut(event)) {
     if (state.sessionComplete && state.cards.length > 0) {
-      e.preventDefault();
+      event.preventDefault();
       restartSession();
     }
   }
 });
 
-function preventDefaults(e: Event): void {
-  e.preventDefault();
-  e.stopPropagation();
+// --- Drag and drop ----------------------------------------------------------------
+
+/** Block default so the browser doesn’t navigate away or open the file in-tab. */
+function preventDefaults(event: Event): void {
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 ["dragenter", "dragover", "dragleave", "drop"].forEach((evt) => {
@@ -1083,35 +827,39 @@ function preventDefaults(e: Event): void {
 el.dropZone.addEventListener("dragenter", () => {
   el.dropZone.classList.add("is-dragover");
 });
-el.dropZone.addEventListener("dragleave", (e) => {
-  const related = e.relatedTarget as Node | null;
+el.dropZone.addEventListener("dragleave", (event) => {
+  const related = event.relatedTarget as Node | null;
   if (!related || !el.dropZone.contains(related)) {
     el.dropZone.classList.remove("is-dragover");
   }
 });
-el.dropZone.addEventListener("drop", (e) => {
+el.dropZone.addEventListener("drop", (event) => {
   el.dropZone.classList.remove("is-dragover");
-  const file = e.dataTransfer?.files?.[0];
+  const file = event.dataTransfer?.files?.[0];
   if (!file) return;
   const lower = file.name.toLowerCase();
   if (!lower.endsWith(".md") && !lower.endsWith(".markdown") && file.type !== "text/markdown") {
     el.fileMeta.textContent = "Please drop a Markdown (.md) file.";
     return;
   }
-  void loadDeckFromDroppedFile(e.dataTransfer!, file);
+  void loadDeckFromDroppedFile(event.dataTransfer!, file);
 });
 
-async function loadDeckFromDroppedFile(dt: DataTransfer, file: File): Promise<void> {
+/**
+ * Chromium can attach a real `FileSystemFileHandle` on drop for save-in-place; other sources throw
+ * and we fall back to in-memory-only `loadDeck`.
+ */
+async function loadDeckFromDroppedFile(dataTransfer: DataTransfer, file: File): Promise<void> {
   let handle: FileSystemFileHandle | null = null;
-  const item = dt.items[0];
+  const item = dataTransfer.items[0];
   if (item?.kind === "file") {
     const withFs = item as DataTransferItem & {
       getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>;
     };
     if (typeof withFs.getAsFileSystemHandle === "function") {
       try {
-        const h = await withFs.getAsFileSystemHandle();
-        if (h !== null && h.kind === "file") handle = h as FileSystemFileHandle;
+        const maybeHandle = await withFs.getAsFileSystemHandle();
+        if (maybeHandle !== null && maybeHandle.kind === "file") handle = maybeHandle as FileSystemFileHandle;
       } catch {
         /* e.g. drag from browser UI — no host path / handle */
       }
