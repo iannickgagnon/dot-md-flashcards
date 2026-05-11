@@ -149,8 +149,12 @@ app.innerHTML = `
           </article>
         </div>
         <div class="actions">
-          <button type="button" class="btn-outline" id="btn-got" disabled hidden>GOT IT</button>
-          <button type="button" class="btn-outline" id="btn-missed" disabled hidden>MISSED IT</button>
+          <button type="button" class="btn-outline" id="btn-got" disabled hidden>
+            <span class="btn-outline__key">G</span>OT IT
+          </button>
+          <button type="button" class="btn-outline" id="btn-missed" disabled hidden>
+            <span class="btn-outline__key">M</span>ISSED IT
+          </button>
           <button type="button" class="btn-outline" id="btn-restart" hidden>RESTART</button>
         </div>
       </div>
@@ -801,6 +805,23 @@ el.btnNext.addEventListener("click", (e) => {
 el.btnGot.addEventListener("click", () => markOutcome("got"));
 el.btnMissed.addEventListener("click", () => markOutcome("missed"));
 
+function shouldIgnoreGotMissedShortcut(e: KeyboardEvent): boolean {
+  if (e.ctrlKey || e.metaKey || e.altKey) return true;
+  if (el.editDialog.open) return true;
+  const a = document.activeElement;
+  if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement || a instanceof HTMLSelectElement) {
+    return true;
+  }
+  if (a instanceof HTMLElement && a.isContentEditable) return true;
+  return false;
+}
+
+function canMarkOutcomeFromShortcut(): boolean {
+  return (
+    state.cards.length > 0 && !el.btnGot.disabled && !el.btnGot.hidden && !el.btnMissed.disabled && !el.btnMissed.hidden
+  );
+}
+
 window.addEventListener("keydown", (e) => {
   if (e.key === "ArrowLeft") {
     if (state.cards.length > 0 && state.index > 0) {
@@ -812,6 +833,16 @@ window.addEventListener("keydown", (e) => {
     if (n > 0 && state.index < n - 1) {
       e.preventDefault();
       go(1);
+    }
+  } else if ((e.key === "g" || e.key === "G") && !shouldIgnoreGotMissedShortcut(e)) {
+    if (canMarkOutcomeFromShortcut()) {
+      e.preventDefault();
+      markOutcome("got");
+    }
+  } else if ((e.key === "m" || e.key === "M") && !shouldIgnoreGotMissedShortcut(e)) {
+    if (canMarkOutcomeFromShortcut()) {
+      e.preventDefault();
+      markOutcome("missed");
     }
   }
 });

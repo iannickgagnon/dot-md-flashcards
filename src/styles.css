@@ -204,6 +204,13 @@ body {
   cursor: pointer;
 }
 
+.btn-outline__key {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.25em;
+  text-decoration-color: currentColor;
+}
+
 .btn-outline:hover:not(:disabled) {
   background: var(--btn-ghost-hover-bg);
 }
